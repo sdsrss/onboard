@@ -236,6 +236,13 @@ do_doctor() {
     local exec_count
     exec_count=$(find "$INSTALL_DIR"/hooks -name "*.sh" -perm -u+x 2>/dev/null | wc -l | tr -d ' ')
     echo "  hooks exec    $exec_count/4"
+    local script_count
+    script_count=$(find "$INSTALL_DIR"/scripts -name "*.sh" -perm -u+x 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$script_count" -ge 1 ]; then
+      echo "  scripts exec  $script_count/1 (mirror-hooks.sh, v2.10.1+)"
+    else
+      echo "  scripts exec  0/1 — mirror-hooks.sh missing or not +x (re-run $0 update)"
+    fi
   else
     echo "  ✗ not installed at $INSTALL_DIR"
     echo "    install with: $0 install"

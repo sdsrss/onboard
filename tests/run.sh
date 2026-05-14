@@ -6,6 +6,11 @@
 #   bash tests/run.sh              # run all
 #   bash tests/run.sh plugin-install   # run a single test by basename
 #
+# Env:
+#   ONBOARD_TEST_KEEP_SANDBOX=1    # keep /tmp/onboard-*-sandbox after success
+#                                  # (default: clean on full pass; failed runs
+#                                  # always keep for debug)
+#
 # Add a new test by dropping an executable .sh into tests/integration/.
 
 set -uo pipefail
@@ -62,3 +67,8 @@ if [ "$FAILED" -gt 0 ]; then
   exit 1
 fi
 echo "$(c '1;32' '✓ all tests passed')"
+
+# §8 V4: dispose sandbox artifacts on success unless caller opts out
+if [ "${ONBOARD_TEST_KEEP_SANDBOX:-0}" != "1" ]; then
+  rm -rf /tmp/onboard-plugin-sandbox /tmp/onboard-mirror-sandbox 2>/dev/null || true
+fi
