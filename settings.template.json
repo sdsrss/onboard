@@ -1,5 +1,5 @@
 {
-  "_comment": "Reference template for .claude/settings.json after /onboard v2.6 in --share mode (Skill form). Note: --share is OPT-IN as of v2.6; default mode is --local-only which uses settings.local.template.json instead. Replace placeholder values per project, then merge into your existing settings.json using Phase 7 deep-merge strategy (independent matcher blocks, never collapse into the same hooks array).",
+  "_comment": "Reference template for .claude/settings.json after /onboard v2.7 in --share mode (Skill form). Note: --share is OPT-IN as of v2.6; default mode is --local-only which uses settings.local.template.json instead. Replace placeholder values per project, then merge into your existing settings.json using Phase 7 deep-merge strategy (independent matcher blocks, never collapse into the same hooks array).",
 
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "packages/legacy-core:vendor",

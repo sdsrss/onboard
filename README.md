@@ -95,11 +95,13 @@ Claude 会先输出**执行计划**（阶段清单、预估改动文件数、规
 
 | 阶段 | 你的角色 |
 |---|---|
-| Phase 0 · Preflight | 看到工作区脏会提示先 stash/commit |
-| Phase 1 · Discovery | 阅读《项目环境现状报告》 |
+| Phase 0 · Preflight | 看到工作区脏会提示先 stash/commit；team/solo 信号 + git host 自动探测 |
+| Phase 1 · Discovery | 阅读《项目环境现状报告》（多栈识别 + lockfile / CI 分析） |
 | Phase 1.5 · Blocking Decisions | 用枚举 DSL 决策 lockfile/CI/forbidden zones |
+| **Phase 1.7 · Deep Analysis** (v2.7) | 阅读 8 维度分析结果（构建命令 / 依赖方向 / 行为禁令 / 覆盖率信号 / 等）|
 | Phase 2 · Authorization | 用 `proceed safe` / `approve install <id>` / `skip <id>` 授权 |
-| Phase 3-8 · 写入与验证 | 阶段卡片审阅，必要时 abort |
+| **Phase 2.5 · Install Plan** (v2.7) | 四类清单 batch 授权：dev tools / system CLIs / runtimes / Claude Code plugins |
+| Phase 3-8 · 写入与验证 | 阶段卡片审阅，必要时 abort；Phase 3 token 预算检查 |
 
 ### 参数
 
@@ -108,12 +110,13 @@ Claude 会先输出**执行计划**（阶段清单、预估改动文件数、规
 | `--local-only` | **v2.6 新增，默认模式**：所有产物走 `.local.*` 约定 + `.git/info/exclude`，团队成员 pull 后零可见，零 .gitignore 改动 |
 | `--share` | **v2.6 新增**：team-share 模式（v2.5 及之前的默认）。OUTPUT 文件入仓共享。需要团队对 AI 工具有共识 |
 | `--dry-run` | 只输出"将要做什么"，不实际写入 |
-| `--phase=<n>` | 只跑指定阶段（0, 0.5, 1, 1.5, 2, 3-8） |
+| `--phase=<n>` | 只跑指定阶段（0, 0.5, 1, 1.5, 1.7, 2, 2.5, 3-8） |
 | `--resume` | 从上次中断处继续（同版本状态文件） |
 | `--update` | 升级旧版 onboarding 到当前 spec（触发 Phase 0.5 Migration） |
 | `--strict` | 任何验证失败立即中止 |
 | `--isolate-branch` | 在专用分支跑写入阶段（**仅 `--share` 模式有意义**，分支前缀自动从团队习惯探测，fallback `chore/`） |
-| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 健康度（D1-D10 共 10 项），输出 `healthy \| drifted \| broken` |
+| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 健康度（D1-D14 共 14 项），输出 `healthy \| drifted \| broken` |
+| `--allow-large-claude-md` | **v2.7 新增**：覆盖 CLAUDE.md token 硬上限 5000。Phase 3 触发 hard AUTH 才能写超大 CLAUDE.md |
 
 ### 决策树：我该用哪个模式？
 
@@ -329,10 +332,21 @@ CLAUDE.md 在多栈项目里会用 `## Stacks`（多栈变体）而非 `## Stack
 
 ## 升级与版本
 
-当前版本：**v2.6**。
+当前版本：**v2.7**。
+
+**v2.7 新增能力一览**：
+- 深度项目认知（Phase 1.7）：构建/测试命令、目录依赖方向、代码规范、行为禁令、覆盖率信号 8 维度自动抽取
+- 提取式 CLAUDE.md：token 预算 soft 2500 / hard 5000；每行 load-bearing；空节不写
+- Install Plan（Phase 2.5）：dev tools / system CLIs / language runtimes / Claude Code plugins 四类清单 batch 授权
+- Claude Code plugin 推荐矩阵（15 项硬编码 + open recommendation fallback）
+
+**从 v2.6 升级**：
+- `--update` 会触发 Phase 1.7 / 2.5 / 3 重跑（Phase 0.5 自动标 `update_phases`）
+- CLAUDE.md 会被重写（旧版备份到 `.claude/onboarding-logs/CLAUDE.md.v26.bak`）→ Phase 3 触发 hard AUTH
+- 若新草稿 ≥ 5000 token → 拒绝写入，需 `--allow-large-claude-md` 覆盖
 
 **从 v2.5 升级**：
-- 默认行为反转：v2.5 默认入仓，v2.6 默认 local-only
+- 默认行为反转：v2.5 默认入仓，v2.6/v2.7 默认 local-only
 - 已有 v2.5 onboarding 的项目 `--update` 后**保留 share 模式**（不会偷偷改默认）
 - 想撤回到 local-only：`/onboard --update --local-only`（会触发 hard AUTH）
 

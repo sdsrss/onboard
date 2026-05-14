@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.6). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.7). The "code" being maintained is:
 
-- `SKILL.md` — the workflow spec that defines an 8-phase onboarding protocol (Phase 0 → Phase 8), Doctor Mode (`--doctor`, v2.5+), and Mode model (`--local-only` default vs `--share`, v2.6+) for retrofitting Claude Code into legacy projects. This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) is what registers it as a Skill when placed under `.claude/skills/onboard/`.
+- `SKILL.md` — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D14 checks), Mode model (`--local-only` default vs `--share`, v2.6+), and Install Plan / Plugin recommendation matrix (v2.7+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) is what registers it as a Skill when placed under `.claude/skills/onboard/`.
 - `hooks/*.sh` (4 scripts) — supporting files referenced from settings files by the *installer project*, not run inside this repo.
 - `settings.template.json` — reference config for `--share` mode (`.claude/settings.json`).
 - `settings.local.template.json` (v2.6) — reference config for `--local-only` mode (`.claude/settings.local.json`); hooks reference user-global `~/.claude/skills/onboard/` install path.
@@ -42,9 +42,13 @@ All four read `ONBOARD_STACKS_FILE` (a JSON list at `.claude/onboarding-logs/sta
 
 Default-flipping was deliberate: most companies have only a few AI-tool early adopters, so "default commit" forces AI tooling on uninvolved teammates. Default local-only = zero team-pollution risk.
 
+**CLAUDE.md philosophy (v2.7, extraction-first)** — Phase 3 enforces a hard token budget. Soft cap warn at 2500 tokens (~10KB), hard refusal at 5000 tokens (~20KB) unless `--allow-large-claude-md` is given. Any section with no extracted content is omitted entirely (no placeholders). Line-format constraints are enforced on `## Run` / `## Layout` / `## Don't` / `## Watch out` — violations fail Phase 3.
+
+**Install orchestration (v2.7)** — Phase 2.5 batches missing dev tools, system CLIs, language runtimes, and Claude Code plugins into four authorization lists. System CLIs and Claude Code plugins are NEVER auto-executed; only command strings are offered. Iron Law 7 holds: batch AUTH = explicit AUTH (granularity changes, semantics don't).
+
 ## Iron Laws and meta-rules (non-negotiable when editing SKILL.md)
 
-SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **16 meta-rules** (v2.6 added rules 13–16). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
+SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules** (v2.6 added 13–16; v2.7 added 17–19). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
 
 - **Iron Law 15 (Exit code OR JSON, never both)** — every hook script must pick one output protocol. Mixing exit 2 with stdout JSON makes Claude Code ignore the JSON. Existing hooks always use `exit 0 + stdout JSON`.
 - **Iron Law 19 (warn-only must exit 0)** — checks marked deferred (e.g. preexisting typecheck violations) MUST output warnings via stderr but never return non-zero, or they block `git push`.
@@ -53,6 +57,9 @@ SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **16 meta-rules*
 - **Multi-stack first-class** (v2.4) — any per-stack behavior in SKILL.md must iterate `stacks[]`, namespace commands (`lint:ts` / `lint:py` / `lint` aggregate), and rely on `stacks.json` for hook dispatch. Do not regress to a single-stack assumption.
 - **Meta-rule 13 (v2.6 default local-only)** — default behavior reversed. Any new SKILL.md content describing OUTPUT must specify behavior under both modes; if you forget the local-only branch you've introduced a regression.
 - **Meta-rule 16 (v2.6 PR/MR never auto-execute)** — host adapter offers commands, never executes. Adding auto-execute would violate §5 hard AUTH on external state changes.
+- **Meta-rule 17 (v2.7 CLAUDE.md hard token ceiling)** — Phase 3 refuses CLAUDE.md ≥ 5000 tokens (`wc -c / 4` estimation) unless explicitly overridden. Soft cap 2500 triggers auto-compression. Editing the template to add content requires checking it stays in budget.
+- **Meta-rule 18 (v2.7 `## Don't` one-line)** — each item ≤ 100 chars, never wraps. Long reasons go to commit msg / ADR / issue; CLAUDE.md keeps only the reference ID.
+- **Meta-rule 19 (v2.7 no auto-execute system installs)** — Phase 2.5 system CLIs are offer-only, Claude Code plugins are offer-only. Project dev deps install only in `--share` mode after batch AUTH. Iron Law 7 in v2.7 explicitly forbids "dev-only blanket exemption" — every install must be on an AUTH'd list.
 
 When in doubt about whether a change requires bumping versions or only an edit, read the relevant Phase section of SKILL.md end-to-end — phases reference Iron Laws by number.
 

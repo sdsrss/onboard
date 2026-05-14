@@ -1,5 +1,5 @@
 {
-  "_comment": "Reference template for .claude/settings.local.json after /onboard v2.6 in --local-only mode (default). This file is Claude Code's per-user override, conventionally NOT committed. Hook paths reference the user-global skill install (~/.claude/skills/onboard/) so the project tree stays untouched. If you installed onboard as a project-shared skill, replace ~/.claude with ${CLAUDE_PROJECT_DIR}/.claude in the four hook command paths.",
+  "_comment": "Reference template for .claude/settings.local.json after /onboard v2.7 in --local-only mode (default). This file is Claude Code's per-user override, conventionally NOT committed. Hook paths reference the user-global skill install (~/.claude/skills/onboard/) so the project tree stays untouched. If you installed onboard as a project-shared skill, replace ~/.claude with ${CLAUDE_PROJECT_DIR}/.claude in the four hook command paths.",
 
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "packages/legacy-core:vendor",

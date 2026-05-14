@@ -1,12 +1,12 @@
 ---
 name: onboard
 description: 旧项目接入 Claude Code 的标准化引导流程
-argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor]"
+argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor] [--allow-large-claude-md]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.6)
+# /onboard — Legacy Project Onboarding Protocol (v2.7)
 
 参数：`$ARGUMENTS`
 
@@ -48,7 +48,7 @@ allowed-tools: Read, Glob, Grep
 4. **Idempotent**：可重复执行；已完成阶段须基于状态文件跳过或验证而非重做。
 5. **Verifiable**：每个阶段必须有可执行验证步骤，失败不得标记为完成。
 6. **Stateful**：所有阶段决策、产出、验证结果写入状态文件。
-7. **No auto-install**：任何安装/升级动作必须先列清单 + 显式授权。凡 `installs != []`，对应 lockfile 自动追加到该 item 的 `touches`。
+7. **No auto-install**：任何安装/升级动作必须先列清单 + 显式授权。凡 `installs != []`，对应 lockfile 自动追加到该 item 的 `touches`。**（v2.7 注释）**：Phase 2.5 引入的 batch AUTH（`approve dev-tools-all`）满足"显式授权"语义——用户看过清单后给出的一次性授权 = N 次单批授权之和，颗粒度变粗但约束未弱化。绝不允许"只要是 dev-only 就跳过 AUTH"的无差别豁免。
 8. **No business logic changes**：onboarding 不得修改业务代码；唯一例外是 Phase 5 中用户批准的最小 smoke test。
 9. **No dependency upgrades**：不得升级已有依赖版本；只允许新增经授权的开发依赖。
 10. **Prefer existing task runner**：若项目已有 Makefile / justfile / package scripts，不新增平行入口；新增 script 前必须先做任务运行器健康检查。
@@ -73,6 +73,7 @@ allowed-tools: Read, Glob, Grep
 - `--strict`：任何验证失败立即中止整个流程。
 - `--isolate-branch`（v2.4 新增）：在专用 git 分支 `chore/onboarding-<timestamp>` 上执行写入阶段。失败/不满意切回原分支即可整体回滚。**仅在 `--share` 模式下有意义**；local-only 模式文件均不入仓，分支隔离无收益（Phase 0 检测到 `--local-only --isolate-branch` 组合会发出 warn，但不阻断）。
 - `--doctor`（v2.5 新增）：诊断模式。不跑任何 Phase，不写 PROJECT/OUTPUT，仅做健康检查 + RUNTIME log。详见下文「Doctor Mode」章节。
+- `--allow-large-claude-md`（v2.7 新增）：覆盖 CLAUDE.md token 硬上限 5000。仅在项目实测确需超长 CLAUDE.md 时使用；触发 Phase 3 hard AUTH 并标 `phase_3.token_budget_override: true`。
 
 `--resume`、`--update`、`--doctor` 三者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。
 
@@ -182,6 +183,107 @@ git_host:
 local-only 模式 Phase 8 **不 offer 任何 PR/MR**——文件根本没入仓，没有可推送的 commit。但 adapter 仍然探测并记录，用于：
 - `--update --share` 模式升级时直接复用 adapter 决策
 - Doctor mode D8 检查"如未来切到 share，host 工具链是否就绪"
+
+---
+
+## CLI / runtime install priority（v2.7 新增）
+
+Phase 2.5 调用此协议生成安装命令。**永不自动执行系统级安装**——一律列出命令让用户确认。
+
+### 三层优先级
+
+| 安装目标 | 首选 | 次选 | 兜底 |
+|---|---|---|---|
+| **语言运行时**（Node/Python/Go/Rust） | `mise` / `asdf`（写 `.tool-versions`，per-project） | `nvm` / `pyenv` / `rustup` | OS 包管理器（offer 命令字符串） |
+| **项目内 CLI**（项目脚本调用的工具） | `npx` / `pipx run` / `cargo run --bin`（按需运行） | 项目 dev-dep（修 PROJECT 文件→ share 模式才行） | 全局安装 |
+| **系统 CLI**（jq / gh / glab / make / coreutils） | offer-only：按 OS 包管理器生成命令 | — | — |
+
+### OS / 包管理器探测
+
+```bash
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) echo "macos" ;;
+    Linux) [ -f /etc/os-release ] && . /etc/os-release && echo "$ID" || echo "linux" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    *) echo "unknown" ;;
+  esac
+}
+
+detect_package_managers() {
+  for pm in mise asdf brew apt dnf pacman zypper apk choco scoop winget; do
+    command -v "$pm" >/dev/null 2>&1 && echo "$pm"
+  done
+}
+```
+
+### 系统 CLI 安装命令矩阵（核心 4 个）
+
+| CLI | macOS | Ubuntu/Debian | Fedora/RHEL | Arch | Windows |
+|---|---|---|---|---|---|
+| `jq` | `brew install jq` | `apt install jq` | `dnf install jq` | `pacman -S jq` | `winget install jqlang.jq` |
+| `gh` | `brew install gh` | `apt install gh` (或 https://cli.github.com/manual/installation) | `dnf install gh` | `pacman -S github-cli` | `winget install GitHub.cli` |
+| `glab` | `brew install glab` | `apt install glab` | manual | `pacman -S glab` | `winget install glab.glab` |
+| `gtimeout` (coreutils) | `brew install coreutils` | 内置 `timeout` | 内置 | 内置 | WSL2 |
+
+未在矩阵中的 CLI → 给出官网 URL 让用户自行选择安装路径。
+
+### Local-only 模式约束
+
+- **永不**自动执行系统级安装（`brew install` 等）
+- **永不**修改项目 PROJECT 文件做 dev-dep 安装（要 `--share`）
+- 仅可用：`npx` / `pipx run` 临时调用 + 列出系统 CLI 命令让用户手动跑
+
+---
+
+## Claude Code plugin recommendation matrix（v2.7 新增，硬编码）
+
+Phase 2.5 按项目信号匹配此矩阵；矩阵未覆盖的项目特征 → 走"open recommendation" 通道（consumer Claude 自由推荐，用户确认后写入 state，未来可促请 spec 维护者收编进矩阵）。
+
+### 硬编码矩阵
+
+| Plugin | Trigger 条件 | 推荐理由 |
+|---|---|---|
+| `claudemd` | always | 统一 CLAUDE.md 治理、规范节归属、banned vocab |
+| `claude-mem-lite` | always | 跨会话记忆 + 经验沉淀 |
+| `code-graph-mcp` | `stack_overall_size ∈ {medium, large}` OR `len(stacks) >= 2` | 大型 / 多语言代码库的引用关系、影响面分析 |
+| `serena` | `len(stacks) >= 2` OR 单栈文件数 > 3000 | 跨语言语义搜索 |
+| `frontend-design` | 任一 stack frameworks 含 `react / vue / svelte / nuxt / next` | UI 质量、避免 AI 套路化 |
+| `design-review` | 上一条命中 + 检出 `dev` script + 可访问的 web 入口 | 实时视觉 QA |
+| `qa` / `qa-only` | 检出 dev server config（vite/next/webpack devServer/uvicorn reload 等） | 系统化 QA 流程 |
+| `setup-deploy` | `.github/workflows/*.yml` 含 deploy job OR `.gitlab-ci.yml` 含 deploy stage | 标准化部署流 |
+| `cso` | 存在 `Dockerfile` / `*.k8s.yml` / `kustomization.yaml` / `terraform/` | 基础设施类项目安全审查 |
+| `document-release` | 存在 `CHANGELOG.md` AND `git tag` 数量 ≥ 3 | 发版后文档同步 |
+| `mcp-builder` | 检出 `fastmcp` / `@modelcontextprotocol/sdk` 引用 | MCP server 开发支持 |
+| `seo-technical` / `seo-content` | 检出 docs 站点配置（`mkdocs.yml` / `docusaurus.config.js` / `astro.config.*` blog） | SEO + 内容质量 |
+| `claude-api` | 检出 `anthropic` SDK 引用（`anthropic` Python / `@anthropic-ai/sdk` TS） | Claude API 应用专项 |
+| `webapp-testing` | 上述 qa 触发但项目无 e2e 测试 | Playwright 工具箱接入 |
+| `make-pdf` | 检出 `docs/` 含 markdown 报告 | 文档转 PDF |
+
+### Open recommendation 协议
+
+当 consumer Claude 觉得某 plugin 适合此项目但**不在矩阵中**：
+
+1. 写入 state file `phase_2_5.plugin_recommendations.from_open[]`，结构：
+   ```json
+   { "name": "<plugin-id>", "reason": "<one line>", "trigger_signal": "<观察到的项目特征>" }
+   ```
+2. 在 Phase 2.5 卡片"Open recommendations"小节列出，标 `[open]`
+3. 用户 `approve plugin <id>` 同样的 DSL 处理
+4. 矩阵升级建议：每次 `--update` 时，若同一 open recommendation 在 ≥ 3 个项目中出现 → Phase 0 输出"建议给 spec 维护者反馈：把 X 加入硬编码矩阵"
+
+### 用户确认协议
+
+Plugin 推荐**绝不自动安装**，按 v2.7 设计逐项让用户选：
+
+```
+Suggested Claude Code plugins (review each):
+  [Y/n] claudemd              统一 CLAUDE.md 治理               (always-on)
+  [Y/n] claude-mem-lite       跨会话记忆                        (always-on)
+  [Y/n] code-graph-mcp        2 栈 + medium size                (matrix:size)
+  [Y/n] frontend-design       react detected                    (matrix:stack)
+  [open] flask-explorer       推断自 apps/api flask 路由        (open-rec)
+```
 
 ---
 
@@ -338,9 +440,12 @@ next:         Phase 1 (Discovery)
    | v1 / v2.0 / v2.1 | `phase_1_5` 整体 | 从历史决策推断；缺失项进 Phase 1.5 重新决策 |
    | v2.2 及更新 | `local_side_effects`、`mutex_resolutions` | 从 `phases.6/7` 推断 |
    | v2.5 及之前 | `mode`、`git_topology`、`team_signals`、`git_host`、`mode_migration`、`git_info_exclude_injected` | v2.5 及之前都是 share 行为 → `mode: "share"`、`mode_migration: null`；其余字段重跑 Phase 0 探测填充 |
+   | v2.6 及之前 | `phase_1_7`、`phase_2_5`、`phases.3.claude_md_tokens`、`phases.3.token_budget_override`、`phases.3.auto_compressions_applied` | 标 `update_phases: ["1_7", "2_5", "3"]`，重跑 Phase 1.7 深度分析、Phase 2.5 install plan、Phase 3 token 预算检查（CLAUDE.md 多半超 token，可能要压缩） |
    | 任何版本 | `entry_point` | 检测当前发布路径（Skill or Command） |
 
 **v2.5→v2.6 升级特殊处理**：v2.5 项目原本就是 share 行为，升级后 `mode: "share"`；用户若想改回 local-only 必须显式跑 `/onboard --update --local-only`，此时 Phase 0.5 标 `mode_migration: "share→local-only"` + Phase 8 输出"清理 .gitignore 中 onboard 条目 / 取消 git tracking 的 CLAUDE.md / settings.json"步骤（涉及 PROJECT 改动 → hard AUTH）。
+
+**v2.6→v2.7 升级特殊处理**：v2.6 项目的 CLAUDE.md 大概率使用 v2.6 填空式模板（80-150 行），升级后 Phase 1.7 重新抽取事实 + Phase 3 提取式重写。Phase 3 在重写前先把现有 CLAUDE.md 备份到 `.claude/onboarding-logs/CLAUDE.md.v26.bak`；若新草稿 > 5000 token → 走 `--allow-large-claude-md` 流程或人工压缩。这是 v2.7 升级**最有可能触发 hard AUTH** 的点（重写覆盖现有 CLAUDE.md）。
 
 3. 写入新状态文件，`version` 升级到当前 spec 版本，`migrated_from: <old>` 记入元数据。
 4. **决策继承策略**：
@@ -524,6 +629,73 @@ Value 不匹配 `allowed_values` 一律拒绝，不接受同义词、自由文�
 
 ---
 
+## Phase 1.7 · Deep Analysis（v2.7 新增）
+
+**目的**：把 Phase 1 的"栈识别"加深到"项目认知"，产出 CLAUDE.md 提取式模板需要的事实集。
+
+**严格约束**：仅 Read / Glob / Grep；不修改 PROJECT；不修改任何文件，仅追加 RUNTIME。
+
+### 8 个分析维度 + recipe（consumer Claude 必跑每条）
+
+| ID | 维度 | Recipe（method） | 输出位置 |
+|---|---|---|---|
+| A1 | `build_test_invocation` | 解析 `package.json scripts`、`Makefile` 目标、`pyproject.toml [tool.poetry.scripts]`/`[tool.pytest.ini_options]`、`Cargo.toml [workspace]`、`Justfile`、`Taskfile.yml`、`turbo.json pipeline`、`nx.json targets`、`.github/workflows/*.yml` 中实际 run 的命令；交集 + 按栈归类 | CLAUDE.md `## Run` |
+| A2 | `test_subset_invocation` | 按检出的 test framework 给出"只跑一个 test"形式：pytest `-k X` / vitest `--filter` / jest `--testPathPattern` / cargo `test name` / go `test -run` / rspec `path:line` | CLAUDE.md `## Run.Test` 的 subset 子项 |
+| A3 | `module_dep_direction` | 对每个顶层 src 目录抽样 import/from 语句；统计跨目录指向；标 one-way / 双向 / 禁止；多语言用 OpenAPI/protobuf 桥接的特殊标 `via codegen` | CLAUDE.md `## Layout` 每行末尾 `imports → ...` |
+| A4 | `generated_code_dirs` | grep `GENERATED` / `DO NOT EDIT` / `auto-generated` 文件头；找 codegen 脚本（`*.codegen.*` / `schema.graphql` + `*.generated.*` / protoc 输出目录） | CLAUDE.md `## Layout` 行内标 `generated; regenerate via <cmd>` |
+| A5 | `naming_convention_anomaly` | 抽样标识符（文件名 + top-level export），按目录分布统计 camelCase / snake_case / kebab-case / PascalCase；**仅在不一致时输出**（一致是项目常态，不写） | CLAUDE.md `## Layout` 行内注 `(uses snake_case)` 或 `(mixed)` |
+| A6 | `behavioral_donts` | 数据源（按命中优先级排）：`CONTRIBUTING.md`/`CODE_STYLE.md` 中 "do not"/"never"/"always X first"；CHANGELOG/commit msg 中 `revert`/`hotfix`/`broke`/`outage`/`incident`；CI 必跑步骤本地缺；自定义 `.git/hooks/*`；`pre-commit`/`lefthook` 各规则；ADR `deprecated`/`do not use` | CLAUDE.md `## Don't` |
+| A7 | `coverage_signal` | 检 `.coveragerc` / `jest.config.* coverageThreshold` / `vitest.config.* coverage` / `pyproject.toml [tool.coverage]` / CI 中 `--cov-fail-under` / `bc -l` 阈值 | CLAUDE.md `## Tests` 的 `Coverage:` 子项 |
+| A8 | `forbidden_zones_v2` | Phase 1 的目录禁区基础上加：`CODEOWNERS` 中 `@no-modify` / `@archived` 注解的 path；显式 `.git/info/attributes` `merge=ours` 路径；`.gitattributes export-ignore`（含部署免疫的源） | CLAUDE.md `## Rules` + state `confirmed_forbidden_zones` |
+
+### 行格式约束（"每行都有用"的工程化）
+
+输出阶段（Phase 3）严格按以下 format string 拼接，**禁止自由散文化**：
+
+- `## Run` 行: `<verb>: <command>  [| <variant>: <command>]`
+- `## Layout` 行: `- <path>  <one-line role>; imports → <X>[, <Y>][; <flag>]`
+- `## Rules` 行: `- <path-or-pattern>  <reason>`
+- `## Don't` 行: `- <禁止动词> <target>  <reason-or-evidence>` （强制 1 行，超长 → 拆原因到 commit msg 而不是 CLAUDE.md）
+- `## Tests` 行: `- Levels: <set>; framework: <X>; Coverage: <N>% <enforcement>`
+- `## Watch out` 行: `- <现象> <为什么 IDE 提示不到>`
+
+### Token 预算估算（A8 完后）
+
+```bash
+# 草稿 token 估算（粗粒度：char 数 / 4）
+estimated_tokens=$(( $(wc -c < .claude/onboarding-logs/claude-md-draft.md) / 4 ))
+```
+
+写入 `phase_1_7.claude_md_token_estimate`，Phase 3 据此决定是否触发压缩 / 拒绝。
+
+### 阶段卡片样例
+
+```
+─── Phase 1.7 · Deep Analysis ───
+mode: local-only
+status: done
+elapsed: 18s
+extracted:
+  A1 build_test:        12 commands (5 ts-web, 4 py-api, 3 aggregate)
+  A2 test_subset:       2 patterns (pytest -k, vitest --filter)
+  A3 module_dep:        4 edges (1 one-way, 1 via-codegen)
+  A4 generated_dirs:    1 dir (apps/api/schemas/)
+  A5 naming_anomaly:    none — repo uses kebab-case files / camelCase exports consistently
+  A6 behavioral_donts:  6 rules (3 from CONTRIBUTING.md, 2 from incident commits, 1 from pre-commit)
+  A7 coverage:          80% lines (CI-enforced)
+  A8 forbidden_v2:      packages/legacy-core/ (CODEOWNERS @archived)
+claude_md_token_estimate: 1820 (within soft cap 2500)
+next: Phase 2 (Plan + Authorization)
+```
+
+### 验证
+
+- 每个维度对应的 recipe 都跑过（state file 字段非空 / 显式标 `not_applicable`）
+- 行格式约束未破（spot-check 至少 3 行）
+- `claude_md_token_estimate` 已写入 state
+
+---
+
 ## Phase 2 · Plan + Authorization
 
 ### 动作
@@ -585,7 +757,99 @@ abort
 
 ---
 
-## Phase 3 · CLAUDE.md（多栈模板支持）
+## Phase 2.5 · Install Plan（v2.7 新增）
+
+**目的**：把 Phase 2 plan 中的 `installs != []` 项 + Phase 1.7 探测出的缺失工具 / CLI / 推荐 plugin 汇总为**分类的安装清单**，逐类用户 confirm，**完整保留 Iron Law 7**——所有安装都经过 AUTH，只是 AUTH 颗粒度变为 batch。
+
+### 四类清单
+
+**类 1 · Dev quality tools**（项目内 dev-only deps，需要修 PROJECT 文件 `package.json` / `pyproject.toml` 等）：
+- 仅 `--share` 模式允许实际安装；local-only 模式**仅列出**，让用户决定是否在 share 后跑
+- 数据源：Phase 4 工具选型矩阵中缺失的项（按栈）；Phase 1 检出团队 lint 配置但未装的 linter；Phase 1.7 推断的项目内 helper 工具
+- 安装协议：`approve dev-tools-all` 一次批准全部；`approve dev-tool <id>` 单批；`skip <id>`
+
+**类 2 · System CLIs**（PATH 级 binary：`jq`、`gh`、`glab`、`make`、`gtimeout`/`coreutils`、`mise` 等）：
+- **绝不**自动执行——按 OS / 包管理器矩阵生成命令字符串列出
+- 数据源：Phase 0 工具可用性探测的缺失项 + Phase 0 Git host adapter 探测的缺失 CLI
+- 多 OS 命令同时列出（用户拷自己的那条）
+- 安装协议：`print cli-install` 输出格式化命令清单；用户跑完后回 `confirm cli-installed` 让 onboard 重新探测 PATH
+
+**类 3 · Language runtimes**（Node/Python/Go/Rust 等版本）：
+- 探测项目要求版本：`package.json engines` / `.nvmrc` / `.python-version` / `pyproject.toml [tool.poetry.dependencies] python` / `go.mod go` / `rust-toolchain.toml`
+- 首选 `mise` / `asdf`：若用户已装其一 → 写 `.tool-versions`（share 模式入仓；local-only 模式写到 `.claude/local-only/.tool-versions` 并在 CLAUDE.md ## Run 节标注"建议 `mise install`"）
+- 否则按 OS 列出原生安装路径
+- 安装协议：`approve runtime tool-versions` / `print runtime-install` / `skip`
+
+**类 4 · Claude Code plugins**（按硬编码矩阵 + open recommendation）：
+- 见上文「Claude Code plugin recommendation matrix」
+- 安装协议：逐 plugin Y/N；`approve plugin <id>` 单批；`approve plugin-all-matrix` 接受所有矩阵推荐
+- **绝不**自动 `/plugin install`——只生成命令字符串
+
+### Phase 2.5 卡片样例
+
+```
+─── Phase 2.5 · Install Plan ───
+mode: local-only
+
+类 1 · Dev quality tools (4 项)
+  仅 share 模式可装；local-only 仅列出
+  [ ] ruff             missing on apps/api (poetry add --group dev ruff)
+  [ ] mypy             missing on apps/api (poetry add --group dev mypy)
+  [ ] vitest           missing on apps/web (pnpm add -D vitest)
+  [ ] @types/node      missing on apps/web (pnpm add -D @types/node)
+
+类 2 · System CLIs (2 项，offer-only)
+  [ ] gh               github CLI (host adapter 探测出 origin=github)
+       macOS:   brew install gh
+       Ubuntu:  see https://cli.github.com/manual/installation
+       Fedora:  dnf install gh
+       Windows: winget install GitHub.cli
+  [ ] jq               required by Phase 7 hooks
+       macOS:   brew install jq
+       Ubuntu:  apt install jq
+       Fedora:  dnf install jq
+       Windows: winget install jqlang.jq
+
+类 3 · Language runtimes (1 项)
+  [ ] Node 20.11.0     from package.json engines.node
+       mise / asdf 已装 → 建议 mise use node@20.11.0
+       未装 → https://nodejs.org/en/download
+
+类 4 · Claude Code plugins (4 项 matrix + 1 open)
+  [Y] claudemd                       always-on
+  [Y] claude-mem-lite                always-on
+  [ ] code-graph-mcp                 multi-stack triggered
+  [ ] frontend-design                react detected
+  [ ] [open] fastapi-route-explorer  推断自 apps/api FastAPI 路由（open-rec）
+
+DSL:
+  approve dev-tools-all | approve dev-tool <id> | skip <id>
+  approve plugin <id>   | approve plugin-all-matrix
+  print cli-install     | confirm cli-installed
+  approve runtime tool-versions
+  proceed-to-phase-3    | abort
+```
+
+### Iron Law 7 边界澄清（v2.7 注释）
+
+Iron Law 7 ("No auto-install: any install/upgrade requires explicit authorization") 在 v2.7 仍然完整生效。**Batch AUTH = explicit AUTH**——`approve dev-tools-all` 是一次显式授权，列表是用户看过的，颗粒度变粗但语义未变。
+
+**绝不允许**："只要是 dev-tool 就跳过 AUTH" 这种无差别豁免——任何 phase 中遇到 `installs != []` 没有 AUTH 记录 → §5 hard-block。
+
+### `--update` 模式
+
+Install Plan 在 `--update` 时只列出**新出现的缺失项**（与上次比对 state file `phase_2_5.installed[]`）。
+
+### 验证
+
+- 四类清单完整生成（即使某类为空也显式标 `(0 项)`）
+- DSL 输入解析无歧义
+- local-only 模式：类 1 实际未执行任何安装
+- 安装后 PATH 重新探测：缺失 CLI 已就位（或用户 `confirm cli-installed --skip-verify`）
+
+---
+
+## Phase 3 · CLAUDE.md（v2.7 改：提取式模板 + token 预算）
 
 ### `claudemd` 插件共存探测（v2.5 新增，前置）
 
@@ -637,71 +901,117 @@ abort
 - `claudemd` 插件共存探测仍生效，但分工记录在 `phases.3.claudemd_coexistence` 仍引用 onboard 拥有的节（节归属与模式无关）
 - `CLAUDE.local.md` 自动加入 `.git/info/exclude`，**不动 .gitignore**
 
-### 多栈变体（v2.4 新增）
+### 提取式模板（v2.7 哲学反转）
 
-单栈项目用原模板；多栈项目用以下变体：
+**核心原则**：CLAUDE.md 是 token 税——每条 interaction 都加载。每行都必须 load-bearing；任一节无内容 → **整节不写**（不留 placeholder）。
+
+**目标尺寸**（基于 char/4 估算 token）：
+- soft cap：**2500 tokens**（warn + 提示压缩）
+- hard refuse：**5000 tokens**（拒绝写入，需 `--allow-large-claude-md` 显式覆盖）
+
+**模板骨架**（按需选填，无内容的节整段不出）：
 
 ```markdown
-# Project Knowledge for Claude Code
+# Project: <name>
 
-## Stacks
-- **ts-web**: TypeScript + Next.js, pnpm, `apps/web/`
-- **py-api**: Python + FastAPI, poetry, `apps/api/`
-- **py-ml**: Python + Jupyter, poetry, `ml/`
-- 整体规模：medium
+## Type
+<one-line stack 描述>. Size: <small|medium|large> (<N> files, <M> packages).
 
-## Commands
-### 跨栈聚合
-- 全量构建：`<聚合命令>`
-- 全量测试：`<聚合命令>`
-
-### TS (apps/web/)
-- 开发：`pnpm dev`
-- Lint：`pnpm lint`
-- Typecheck：`pnpm typecheck`
-- Format：`pnpm format`
-
-### Python (apps/api/, ml/)
-- 开发：`poetry run uvicorn main:app --reload`
-- Lint：`poetry run ruff check`
-- Typecheck：`poetry run mypy`
-- Format：`poetry run ruff format`
+## Run
+- Dev:   <cmd>  [| <variant>: <cmd>]
+- Build: <cmd>
+- Test:  <cmd>  | subset: <subset-pattern>
+- Lint:  <cmd>  | Type: <cmd>
 
 ## Layout
-- `apps/web/` (ts-web)：<职责>
-- `apps/api/` (py-api)：<职责>
-- `ml/` (py-ml)：<职责>
+- <path>  <role>; imports → <X>[, <Y>][; generated|read-only|test-only|via codegen]
 
-## Change Policy
-- **Safe-to-edit**：apps/web/src/, apps/api/src/
-- **Ask-before-edit**：packages/ui/, .github/workflows/, ml/notebooks/
-- **Read-only / Forbidden**：packages/legacy-core/, vendor/
+## Rules
+- <path-or-pattern>  <reason-one-line>
 
-## Testing
-- 当前测试级别：unit + integration（无 e2e）
-- 框架：vitest (ts) / pytest (py)
-- 快速验证：`pnpm test --run` + `poetry run pytest -x`
-- 全量验证：`pnpm test` + `poetry run pytest`
-- 例外：ml/ 暂无测试覆盖
+## Don't
+- <禁止动词> <target>  <reason-or-evidence>
 
-## Gotchas
-- <Phase 1 发现的坑、deferred 项现状>
+## Tests
+- Levels: <set>; framework: <X>; Coverage: <N>%  <CI|pre-commit|none>
 
-## Forbidden（confirmed by Phase 1.5）
-- packages/legacy-core/
-- vendor/
-
-## Mistakes log
+## Watch out
+- <非显然现象> <为什么 IDE/类型提示救不了>
 ```
+
+### 行格式约束（Iron 等级）
+
+Phase 1.7 已定义；Phase 3 写入前**逐行 spot-check**：
+
+| 节 | 强制 format | 违规处理 |
+|---|---|---|
+| `## Run` | 冒号对齐的 verb: cmd 形式，行长 ≤ 100 chars | 截断或拆 variant |
+| `## Layout` | `- <path>  <role>; imports → ...` | 缺 imports 部分 → 探测错误，回 Phase 1.7 A3 |
+| `## Don't` | **强制 1 行**，行长 ≤ 100 chars | 超长 → reason 拆到 commit msg / ADR，CLAUDE.md 只留 ID 引用 |
+| `## Watch out` | ≤ 1 行 | 同上 |
+
+**禁止散文**：不写 "It's important to note that..." / "通常情况下..." 之类填充；不写"在多栈项目中你可能..."之类教学语。
+
+### 模式分支决策树
+
+**`--share` 模式**：
+- 已有 `CLAUDE.md` → 修订模式，按 `claudemd_coexistence` 分工，对每节差异展示 diff
+- 无 `CLAUDE.md` → 优先调用 `/init`，否则按提取式模板生成
+- 目标文件：项目根 `CLAUDE.md`（入仓）
+
+**`--local-only` 模式（默认）**：
+- 写入目标：`CLAUDE.local.md`（项目根；Claude Code 自动 load）
+- 已有 `CLAUDE.md` 时不动它，仅追加 onboard 提取出的事实到 `CLAUDE.local.md`
+- 已有 `CLAUDE.local.md` → 修订模式
+- 自动加入 `.git/info/exclude`，**不动 .gitignore**
+
+### Token 预算执行
+
+```bash
+DRAFT=.claude/onboarding-logs/claude-md-draft.md
+estimated_tokens=$(( $(wc -c < "$DRAFT") / 4 ))
+
+if [ "$estimated_tokens" -lt 2500 ]; then
+  echo "Phase 3: $estimated_tokens tokens (within soft cap)"
+elif [ "$estimated_tokens" -lt 5000 ]; then
+  echo "WARN: $estimated_tokens tokens (over soft 2500). Auto-compressions to consider:"
+  echo "  - Inline lists with <=2 items"
+  echo "  - Drop level-3 headers, use bold inline labels"
+  echo "  - Move detailed gotchas to .claude/local-only/notes/ (local-only) or CLAUDE-extended.md (share)"
+  # 自动尝试压缩 → 重新估算 → 仍 >2500 则提示用户
+elif [ "$estimated_tokens" -ge 5000 ]; then
+  if [ "${ONBOARD_ALLOW_LARGE_CLAUDE_MD:-false}" = "true" ] || [ "$ALLOW_LARGE_FLAG" = "true" ]; then
+    echo "WARN: $estimated_tokens tokens — exceeds hard refuse 5000 (override active)"
+  else
+    echo "REFUSE: $estimated_tokens tokens > hard refuse 5000."
+    echo "  Compress further or rerun with --allow-large-claude-md"
+    # Phase 3 标 failed: token_budget_exceeded
+    exit 1
+  fi
+fi
+```
+
+字段写入 state file `phases.3.claude_md_tokens` + `phases.3.token_budget_override`。
+
+### 自动压缩规则（soft cap 触发）
+
+按以下顺序逐条应用直至 ≤ 2500 tokens（或检测无更多可压）：
+
+1. 列表项 ≤ 2 → 合并为单行（"unit, integration" vs 分两 bullet）
+2. 同节相邻 bullet 内容相近 → 合并
+3. `###` 子标题去掉 → 改为行首 `**Bold:**` 标签
+4. 详细 gotcha 拆出到附属文件，CLAUDE.md 留一行引用
+5. 模板 placeholder 整行删（无内容的节直接不写）
 
 ### 验证
 
 - 文件存在且非空
-- 占位符残留检测：正则 `^[ \t]*<[a-z+_\-]+>$` 不得匹配任何整行
-- 多栈项目必须有 `## Stacks` 节，单栈项目用 `## Stack`
-- `## Change Policy` / `## Testing`（含级别行）必须存在
-- 若有 confirmed forbidden zones，`## Forbidden` 必须列全
-- 多栈项目 Commands 节必须含每个栈的子节
+- **占位符残留检测**：正则 `^[ \t]*<[a-z+_\-]+>$` 不得匹配任何整行
+- **行格式约束 spot-check**：每节随机抽 1 行验 format（违规直接 fail，回 Phase 1.7）
+- **多栈项目**：用 `## Type` 一行描述代替 v2.6 之前的 `## Stacks` 多行（"TS+Python monorepo: ts-web (apps/web, pnpm) + py-api (apps/api, poetry)"）
+- **`## Don't` 节**：每行 ≤ 100 chars + 1 行（违规 fail）
+- **Token 预算**：≤ 2500（soft）或 < 5000（hard）或 override 已记录
+- 若有 confirmed forbidden zones，`## Rules` 必须列全
 
 ---
 
@@ -1508,12 +1818,16 @@ tea pulls create \
 | **D8** | **模式一致性（v2.6 新增）**：state file `mode` 字段与实际文件分布吻合 | local-only 模式但发现 `CLAUDE.md` 或 `.claude/settings.json` 被 onboard 写入 / share 模式但缺 `.claude/settings.json` | drifted | both |
 | **D9** | **`.git/info/exclude` 完整性（v2.6 新增，local-only）**：onboard 写入的所有路径都已在 exclude 中 | 缺路径 → 团队可能误见 onboard 文件 | broken | local-only |
 | **D10** | **Git host adapter 就绪度（v2.6 新增）**：检测 host CLI 是否仍可用 | gh/glab/tea 之前可用，现在不可用 | drifted | both |
+| **D11** | **CLAUDE.md token 预算（v2.7 新增）**：CLAUDE.md / CLAUDE.local.md 实际 token 估算 | 超 hard refuse 5000 且未 override | broken | both |
+| **D12** | **行格式约束（v2.7 新增）**：`## Don't` 每行 ≤ 100 chars + 1 行；`## Layout` 行含 `imports →`；占位符无残留 | 任一违规 | drifted | both |
+| **D13** | **Plugin 推荐表 vs 实际安装漂移（v2.7 新增）**：state file `phase_2_5.plugin_recommendations.approved` 与 `~/.claude/plugins/` / 项目级 `.claude/plugins/` 实际安装比对 | 用户 approved 的 plugin 不在已安装列表 | drifted | both |
+| **D14** | **Install plan 完整性（v2.7 新增）**：Phase 2.5 标记的"approved dev-tool"是否已实际安装（按 lockfile 比对） | approved 但未装 | drifted | share |
 
 ### 三态健康度
 
-- **healthy**：D1–D10 全过
-- **drifted**：仅 drifted 级失败（D2/D3/D7/D8/D10）→ 建议 `/onboard --update` 或针对性手动修复
-- **broken**：任一 broken 级失败（D1/D4/D5/D6/D9）→ 必须人工介入或重新 onboard
+- **healthy**：D1–D14 全过
+- **drifted**：仅 drifted 级失败（D2/D3/D7/D8/D10/D12/D13/D14）→ 建议 `/onboard --update` 或针对性手动修复
+- **broken**：任一 broken 级失败（D1/D4/D5/D6/D9/D11）→ 必须人工介入或重新 onboard
 
 ### 输出格式
 
@@ -1522,23 +1836,29 @@ tea pulls create \
 state:        healthy | drifted | broken
 mode:         local-only | share
 checked_at:   <ISO timestamp>
-spec_version: <state.version> (current: 2.6)
+spec_version: <state.version> (current: 2.7)
 git host:     github.com (gh CLI v2.x available)
+claude_md:    1820 tokens (within soft cap 2500)
 
 D1 schema:                ✓ ok
-D2 stacks consistency:    ✗ drifted — new dir `ml/` looks like a Python stack not in stacks.json
+D2 stacks consistency:    ✗ drifted — new dir `ml/` not in stacks.json
 D3 forbidden zones exist: ✓ ok
 D4 hook references:       ✓ ok
 D5 hook syntax:           ✓ ok
 D6 settings.json valid:   ✓ ok
 D7 hook executable:       ✗ drifted — guard-edit.sh missing +x
 D8 mode consistency:      ✓ ok
-D9 git/info/exclude (local-only): ✓ ok (7 entries match)
+D9 git/info/exclude:      ✓ ok (7 entries match) [local-only only]
 D10 host adapter:         ✓ ok (gh)
+D11 claude.md tokens:     ✓ ok (1820 < 2500)
+D12 line format:          ✓ ok
+D13 plugin drift:         ✗ drifted — code-graph-mcp approved but not installed
+D14 install drift:        ✓ ok [share only]
 
 Suggested actions:
   D2 → run `/onboard --update` to re-detect stacks
   D7 → chmod +x ~/.claude/skills/onboard/hooks/guard-edit.sh
+  D13 → /plugin install code-graph-mcp  (or run /onboard --update)
 ```
 
 ### Iron Law 边界
@@ -1586,7 +1906,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 状态文件结构（v2.6 schema）
+## 状态文件结构（v2.7 schema）
 
 **路径**：
 - `--local-only` 模式（默认）：`.claude/local-only/onboarding-state.json`
@@ -1594,8 +1914,8 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ```json
 {
-  "version": "2.6",
-  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | null",
+  "version": "2.7",
+  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | 2.6 | null",
   "mode": "local-only | share",
   "mode_migration": "local-only→share | share→local-only | null",
   "started_at": "...",
@@ -1607,6 +1927,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
     "local_only": true,
     "share": false,
     "isolation_branch": "<prefix>/onboarding-... | null",
+    "allow_large_claude_md": false,
     "update_phases": []
   },
   "git_topology": {
@@ -1653,8 +1974,35 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
     "0_5": { "status": "done | not_triggered", "schema_diff": [], "inherited_decisions": [] },
     "1":   { "status": "done", "discovery_report": "<markdown>", "lockfile_conflicts": [], "ci_commands_extracted": [], "stale_task_runner_targets": [] },
     "1_5": { "status": "done", "decisions": {} },
+    "1_7": {
+      "status": "done",
+      "extracted": {
+        "A1_build_test": [],
+        "A2_test_subset": [],
+        "A3_module_dep": [],
+        "A4_generated_dirs": [],
+        "A5_naming_anomaly": "none | <observation>",
+        "A6_behavioral_donts": [],
+        "A7_coverage": { "threshold": null, "enforcement": "ci|pre-commit|none" },
+        "A8_forbidden_v2": []
+      },
+      "claude_md_token_estimate": 0
+    },
     "2":   { "status": "done", "plan": [], "approved_items": [], "approved_installs": [], "approved_risks": [], "skipped": [], "mutex_resolutions": {} },
-    "3":   { "status": "done", "outputs": ["CLAUDE.md | CLAUDE.local.md"], "change_policy_set": true, "testing_level": "unit + integration", "stacks_section_format": "single | multi", "claudemd_coexistence": {} },
+    "2_5": {
+      "status": "done",
+      "dev_tools": { "needed": [], "approved": [], "installed": [], "skipped": [] },
+      "system_clis": { "missing": [], "commands_offered_per_os": {}, "user_confirmed_installed": [] },
+      "language_runtimes": { "required": [], "tool_versions_written": false },
+      "plugin_recommendations": {
+        "from_matrix": [],
+        "from_open": [],
+        "approved": [],
+        "skipped": [],
+        "install_commands_offered": []
+      }
+    },
+    "3":   { "status": "done", "outputs": ["CLAUDE.md | CLAUDE.local.md"], "change_policy_set": true, "testing_level": "unit + integration", "stacks_section_format": "single | multi", "claudemd_coexistence": {}, "claude_md_tokens": 0, "token_budget_override": false, "auto_compressions_applied": [] },
     "4":   { "status": "done", "outputs": [], "installed": [], "task_runner_health": {}, "checks_by_stack": {} },
     "5":   { "status": "skipped | done | deferred | placeholder", "testing_level_recorded": "unit" },
     "6":   { "status": "done | verification_skipped", "choice": "...", "auto_fix_restage_strategy": "...", "ci_realigned": true, "warn_only_checks": [], "outputs": [] },
@@ -1677,7 +2025,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 元规则（给执行此命令的 Claude 实例，v2.6 增 4 条）
+## 元规则（给执行此命令的 Claude 实例，v2.7 共 19 条）
 
 > v2.3 元规则 9-14 与 Iron Laws 16-19 重复，v2.4 已删除冗余。元规则只保留执行操作层面、Iron Laws 不直接涵盖的指引。
 
@@ -1697,4 +2045,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 14. **（v2.6）Git 拓扑 hard-block**：submodule / bare / detached HEAD 三种状态绝不开工，Phase 0 立即 abort 并提示具体修复路径。
 15. **（v2.6）模式不可单方面切换**：检测到 state file `mode` 字段与当前命令模式不一致 → hard AUTH 要求显式 `--update` 才能切换；切换记 `mode_migration` 字段。
 16. **（v2.6）Host adapter 决不自动开 PR/MR**：探测出 CLI 可用最多 *offer* 命令字符串 + 自动生成 body，**永远** ASK 用户确认后才执行——开 PR 涉及外部系统状态变更，属 §5 hard AUTH。
+17. **（v2.7）CLAUDE.md token 硬上限**：草稿 token 估算 ≥ 5000 → Phase 3 fail，除非 `--allow-large-claude-md` flag 已显式给出（写入 state `token_budget_override`）。soft cap 2500 触发自动压缩 + warn。Token = `wc -c / 4` 粗估，无须依赖 tiktoken。
+18. **（v2.7）`## Don't` 强制 1 行**：每行 ≤ 100 chars 且不换行。原因过长 → 拆到 commit msg / ADR / issue link，CLAUDE.md 只留引用 ID。任一违规 Phase 3 fail。
+19. **（v2.7）安装永不自动执行系统级命令**：Phase 2.5 Install Plan 中类 2（system CLIs）一律 offer-only；类 1（dev deps）仅 share 模式且 batch AUTH 后才执行；类 4（Claude Code plugins）一律 offer-only。Iron Law 7 在 v2.7 仍完整生效——batch AUTH = explicit AUTH（颗粒度变，语义未变）。
 ```

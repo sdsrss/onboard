@@ -4,7 +4,63 @@
 
 ---
 
-## v2.6 — Local-only 默认 + 多平台 git host 适配（current）
+## v2.7 — 深度项目认知 + 提取式 CLAUDE.md + Install orchestration（current）
+
+合并交付原计划中的 v2.7 + v2.8。三大主题：(1) 项目认知深度（Phase 1.7 深度分析）；(2) CLAUDE.md 信息密度反转（提取式模板 + token 预算）；(3) 安装编排（Phase 2.5 Install Plan + Claude Code plugin 推荐矩阵）。
+
+### Added
+
+- **Phase 1.7 · Deep Analysis（新阶段）**：8 维度分析 recipe
+  - A1 build_test_invocation：跨任务运行器（package.json scripts / Makefile / pyproject.toml / Cargo / Justfile / Taskfile / turbo / nx / .github/workflows）提取构建+测试命令交集
+  - A2 test_subset_invocation：按 framework 给出"只跑一个 test"形式
+  - A3 module_dep_direction：grep 抽样 import 跨目录指向，标 one-way / 双向 / via codegen
+  - A4 generated_code_dirs：识别 codegen 输出目录与"DO NOT EDIT"文件头
+  - A5 naming_convention_anomaly：跨目录命名风格异常（一致则不写）
+  - A6 behavioral_donts：从 CONTRIBUTING/CHANGELOG/incident commits/pre-commit/ADR 抽出禁令
+  - A7 coverage_signal：检 coverage 配置与 CI 阈值
+  - A8 forbidden_zones_v2：CODEOWNERS @archived / .gitattributes export-ignore 补强
+- **Phase 2.5 · Install Plan（新阶段）**：四类清单
+  - 类 1 dev quality tools（需修 PROJECT，仅 share 模式可装）
+  - 类 2 system CLIs（offer-only，跨 OS 命令矩阵）
+  - 类 3 language runtimes（首选 mise/asdf）
+  - 类 4 Claude Code plugins（按硬编码矩阵推荐 + open recommendation fallback）
+- **Claude Code plugin 推荐矩阵（硬编码 15 项）**：claudemd / claude-mem-lite always-on；code-graph-mcp / serena 按 size/stack 数；frontend-design / design-review / qa / setup-deploy / cso / document-release / mcp-builder / seo-* / claude-api / webapp-testing / make-pdf 按检测信号
+- **CLI / runtime 安装三层优先级**：mise/asdf → npx/pipx → 系统包管理器；多 OS 命令矩阵（jq / gh / glab / coreutils 覆盖 macOS/Ubuntu/Fedora/Arch/Windows）
+- **CLAUDE.md token 预算执行**：soft cap 2500 / hard refuse 5000；`--allow-large-claude-md` flag override
+- **CLAUDE.md 自动压缩规则**：5 条按序应用（inline 短列表 / 去 H3 / 合并相近 bullet / 拆 gotchas 到附属文件 / 删空节）
+- **Doctor mode D11–D14**：token 预算 / 行格式约束 / plugin 漂移 / install drift
+- **元规则 17–19**（v2.7 新增）：token 上限 / Don't 强制一行 / 安装永不自动执行系统级
+- **行格式约束 Iron 级**：`## Run` / `## Layout` / `## Don't` / `## Watch out` 强制 format string
+
+### Changed
+
+- **CLAUDE.md 模板哲学反转**：从"填空式 outline"改为"提取式事实集"
+  - 任一节无内容 → 整节不写，绝不留 placeholder
+  - 模板骨架（type / run / layout / rules / don't / tests / watch out）按需选填
+  - 目标尺寸：≤ 2500 tokens（v2.6 之前的填空式典型 80-150 行 ≈ 3000-5000 tokens）
+- **Iron Law 7 注释扩写**：明确 batch AUTH = explicit AUTH；禁止"dev-only 无差别豁免"
+- **状态文件 schema 升级到 v2.7**：新增 `phase_1_7`（深度分析结果）、`phase_2_5`（安装计划）、`phases.3.claude_md_tokens` / `token_budget_override` / `auto_compressions_applied`、`params.allow_large_claude_md`
+- **Phase 0.5 Migration**：补 v2.6→v2.7 字段映射；标 `update_phases: ["1_7", "2_5", "3"]` 触发深度分析 + 模板重写
+- **元规则 1**：执行计划现需展示"模式 + 预估 CLAUDE.md token"
+
+### Fixed
+
+- v2.6 CLAUDE.md 填空式模板的 token 浪费：典型项目 80-150 行无内容占位
+- v2.6 Phase 1 探测深度不足：构建/测试命令只看 package.json 表层，漏 Makefile/Justfile/Taskfile/turbo/nx/CI 等数据源
+- v2.6 没有"禁止操作清单"维度：仅目录禁区，缺行为禁区（don't run X / don't commit to Y）
+- v2.6 没有 plugin 推荐机制：装 onboard 后用户不知道还该装啥配套工具
+- v2.6 CLI 缺失（jq / gh / glab / coreutils）时仅在 Phase 0 abort，没系统化的 install plan
+
+### Known limits
+
+- 行格式约束验证靠 spot-check 而非 100% 全扫（性能取舍）
+- Token 估算 = `wc -c / 4`，粗粒度但够用；要精确装 tiktoken 即可
+- Plugin 推荐矩阵硬编码 15 项，覆盖 Claude Code 主流插件；冷门插件走 open recommendation 通道（用户填）
+- v2.6→v2.7 升级会重写 CLAUDE.md，备份在 `.claude/onboarding-logs/CLAUDE.md.v26.bak`；属 hard AUTH
+
+---
+
+## v2.6 — Local-only 默认 + 多平台 git host 适配
 
 **重大变更**：默认行为反转。v2.5 及之前默认入仓，v2.6 起默认 **local-only**（不入仓）。理由：现实里大多数公司只有少数人试用 AI 工具，"默认入仓"等于强加 AI 工具给同事——v2.6 反转这个假设。
 
