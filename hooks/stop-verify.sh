@@ -16,6 +16,18 @@
 set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Cross-platform timeout shim (v2.5): macOS lacks `timeout` by default.
+# Prefers GNU `gtimeout` (from coreutils); falls back to no-op if neither
+# exists so the hook never breaks just because the binary is missing.
+if ! command -v timeout >/dev/null 2>&1; then
+  if command -v gtimeout >/dev/null 2>&1; then
+    timeout() { gtimeout "$@"; }
+  else
+    echo "stop-verify: no timeout/gtimeout found, running without time limits" >&2
+    timeout() { shift; "$@"; }
+  fi
+fi
+
 MODE="${ONBOARD_STOP_MODE:-light}"
 STACKS_FILE="${ONBOARD_STACKS_FILE:-}"
 TOUCHED_LOG="${ONBOARD_TOUCHED_LOG:-}"

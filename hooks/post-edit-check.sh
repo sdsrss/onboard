@@ -16,6 +16,15 @@
 set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Cross-platform timeout shim (v2.5): macOS lacks `timeout` by default.
+if ! command -v timeout >/dev/null 2>&1; then
+  if command -v gtimeout >/dev/null 2>&1; then
+    timeout() { gtimeout "$@"; }
+  else
+    timeout() { shift; "$@"; }
+  fi
+fi
+
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$FILE_PATH" ] && exit 0

@@ -4,7 +4,31 @@
 
 ---
 
-## v2.4 — v2 系列收官版（current）
+## v2.5 — 跨平台 + Doctor 模式（current）
+
+短期补丁版。解决 v2.4 ship 后暴露的几个真实痛点：macOS 无 `timeout` 命令、跑完 onboard 后没健康检查、与 `claudemd` 插件无明确分工、缺开源协议声明。
+
+### Added
+
+- **跨平台 `timeout` shim**：`stop-verify.sh` / `post-edit-check.sh` 顶部内联兼容代码——缺 `timeout` 时优先用 `gtimeout`（macOS coreutils），仍缺失则退化为无超时（保命，不再让 macOS 用户首个 Stop hook 触发就挂）
+- **Doctor 模式** (`/onboard --doctor`)：7 项健康检查（state schema / 栈一致性 / forbidden 路径存活 / hook 引用 / 脚本语法 / settings JSON 合法性 / 可执行权限），输出 `healthy | drifted | broken` 三态 + actionable 建议；不跑任何 Phase，不写 PROJECT/OUTPUT
+- **Phase 3 claudemd 共存声明**：探测到 claudemd 插件存在时，onboard 只生成 `## Stacks` / `## Forbidden` / `## Testing` / `## Change Policy` 节，不动 claudemd 管辖的规范节，避免双工具打架
+- **LICENSE (MIT)**：补开源协议声明，扫清团队 / 商业使用的合规障碍
+
+### Changed
+
+- Frontmatter `argument-hint` 加 `--doctor`
+- 标题去掉"v2 系列收官版"措辞——`--doctor` 证明 evidence-driven 流程仍在产出，v2 系列未必终结于 v2.4
+- README 「环境要求」节明确：v2.5 起 macOS 只需 `brew install coreutils` 即可（脚本会自动选 `gtimeout`），不再需要改脚本
+
+### Known limits
+
+- v2.5 仍是补丁版；结构性升级（SKILL.md 模块化、tests/fixtures 自动回归、入口粒度拆分）留给 v3.0
+- Doctor 模式为 spec-only：检查逻辑由 consumer Claude 按 spec 解释执行，无独立 CI runner
+
+---
+
+## v2.4 — v2 系列阶段性收尾
 
 四大 backlog 一次性解决：多语言混合栈、第三方 hook 共存、跨版本迁移、Skill 形式专属。
 

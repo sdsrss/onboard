@@ -1,12 +1,12 @@
 ---
 name: onboard
 description: 旧项目接入 Claude Code 的标准化引导流程
-argument-hint: "[--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch]"
+argument-hint: "[--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.4 · v2 系列收官版)
+# /onboard — Legacy Project Onboarding Protocol (v2.5)
 
 参数：`$ARGUMENTS`
 
@@ -70,8 +70,9 @@ allowed-tools: Read, Glob, Grep
 - `--update`（v2.4 新增）：升级已完成的旧版 onboarding 到当前 spec。触发 Phase 0.5 Migration，继承旧决策、只跑差异阶段。
 - `--strict`：任何验证失败立即中止整个流程。
 - `--isolate-branch`（v2.4 新增）：在专用 git 分支 `chore/onboarding-<timestamp>` 上执行写入阶段。失败/不满意切回原分支即可整体回滚。
+- `--doctor`（v2.5 新增）：诊断模式。不跑任何 Phase，不写 PROJECT/OUTPUT，仅做健康检查 + RUNTIME log。详见下文「Doctor Mode」章节。
 
-`--resume` 与 `--update` 互斥。
+`--resume`、`--update`、`--doctor` 三者互斥（同时指定两个 → Phase 0 立即 abort）。
 
 ### 阶段卡片输出契约
 
@@ -397,9 +398,44 @@ abort
 
 ## Phase 3 · CLAUDE.md（多栈模板支持）
 
+### `claudemd` 插件共存探测（v2.5 新增，前置）
+
+进入决策树前先探测 `claudemd` 插件是否安装（生态里专门管 CLAUDE.md 规范的工具）：
+
+**探测信号**（任一命中即视为已装）：
+1. `~/.claude/plugins/claudemd*/` 或项目级 `.claude/plugins/claudemd*/` 目录存在
+2. 用户在过去若干会话用过 `/claudemd-*` 命令（询问用户而非自检）
+3. `~/.claude/CLAUDE.md` 中含 `claudemd` 字符串（spec 路标）
+
+**分工规则**：
+
+| 节 | claudemd 已装 | claudemd 未装 |
+|---|---|---|
+| `## Stacks` / `## Stack` | onboard 写 | onboard 写 |
+| `## Commands` | onboard 写（按栈） | onboard 写 |
+| `## Layout` | onboard 写 | onboard 写 |
+| `## Change Policy` | onboard 写 | onboard 写 |
+| `## Testing`（含级别行） | onboard 写 | onboard 写 |
+| `## Forbidden` | onboard 写 | onboard 写 |
+| `## Gotchas` / `## Mistakes log` | onboard 写 | onboard 写 |
+| banned-vocab / specificity / 通用规范节 | **claudemd 管，onboard 不动** | onboard 模板默认不含 |
+
+分工写入状态文件 `phases.3.claudemd_coexistence`：
+
+```json
+{
+  "claudemd_detected": true,
+  "detection_signal": "plugin_dir | user_confirmed | spec_marker",
+  "onboard_owned_sections": ["## Stacks", "## Commands", ...],
+  "claudemd_owned_sections": ["## Specificity", "## Banned vocabulary", ...]
+}
+```
+
+`--update` 模式继承该分工；后续修订严格按归属编辑。
+
 ### 决策树
 
-- 已有 CLAUDE.md → 修订模式，diff 给用户看后合并，不替换
+- 已有 CLAUDE.md → 修订模式，diff 给用户看后合并，不替换；按 `claudemd_coexistence` 分工只动 onboard 拥有的节
 - 无 CLAUDE.md → 优先调用 `/init`，否则按模板生成
 
 ### 多栈变体（v2.4 新增）
@@ -1140,6 +1176,63 @@ CLAUDE.local.md
 5. 第一次 push 后观察 CI 实际行为
 6. Review CLAUDE.md，删除不符合实际的条目
 ```
+
+---
+
+## Doctor Mode（v2.5 新增）
+
+**触发**：`/onboard --doctor`。**不跑任何 Phase**，不写 PROJECT / OUTPUT，仅做诊断 + 追加 RUNTIME log。
+
+**前置**：当前目录是 git 仓库 + 已存在 `.claude/onboarding-state.json`（未 onboard 过的项目 doctor 直接返回 `not_onboarded` 提示用户跑 `/onboard`）。
+
+### 检查项
+
+| ID | 检查 | 失败定义 | 失败级别 |
+|---|---|---|---|
+| D1 | state file schema 合法 | `version` 字段缺失或非已知值 / 关键字段（stacks/confirmed_forbidden_zones/phases）结构错 | broken |
+| D2 | `stacks[]` 与当前目录一致 | 探测 Phase 1 信号，与 stacks.json 比对；新增 / 消失的栈 | drifted |
+| D3 | `confirmed_forbidden_zones` 路径仍存在 | 路径已被删 / 重命名 | drifted |
+| D4 | `.claude/settings.json` 仍引用四个 onboard hook | 引用缺失 / 路径不指向实际脚本 | broken |
+| D5 | `bash -n` 通过 4 个 hook 脚本 | 语法错误 | broken |
+| D6 | `jq empty < .claude/settings.json` 通过 | JSON 非法 | broken |
+| D7 | 4 个 hook 脚本可执行（mode 含 `x`） | 缺执行位 | drifted |
+
+### 三态健康度
+
+- **healthy**：D1–D7 全过
+- **drifted**：仅 drifted 级失败（D2/D3/D7）→ 建议 `/onboard --update` 或针对性手动修复
+- **broken**：任一 broken 级失败（D1/D4/D5/D6）→ 必须人工介入或重新 onboard
+
+### 输出格式
+
+```
+─── Doctor Report ───
+state:        healthy | drifted | broken
+checked_at:   <ISO timestamp>
+spec_version: <state.version> (current: 2.5)
+
+D1 schema:                ✓ ok
+D2 stacks consistency:    ✗ drifted — new dir `ml/` looks like a Python stack not in stacks.json
+D3 forbidden zones exist: ✓ ok
+D4 hook references:       ✓ ok
+D5 hook syntax:           ✓ ok
+D6 settings.json valid:   ✓ ok
+D7 hook executable:       ✗ drifted — guard-edit.sh missing +x
+
+Suggested actions:
+  D2 → run `/onboard --update` to re-detect stacks
+  D7 → chmod +x .claude/skills/onboard/hooks/guard-edit.sh
+```
+
+### Iron Law 边界
+
+- **不修改 PROJECT / OUTPUT**：doctor 只读不写
+- **可以追加到 RUNTIME**：`.claude/onboarding-logs/doctor-<ts>.log` 记录本次诊断
+- **遵守 Iron Law 14**：D7 不自动 `chmod +x`，列出建议命令交给用户
+
+### 状态文件不变
+
+Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结果更新状态，必须用户显式跑 `--update`。
 
 ---
 

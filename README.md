@@ -111,6 +111,7 @@ Claude 会先输出**执行计划**（阶段清单、预估改动文件数、规
 | `--update` | 升级旧版 onboarding 到当前 spec（触发 Phase 0.5 Migration） |
 | `--strict` | 任何验证失败立即中止 |
 | `--isolate-branch` | 在专用分支 `chore/onboarding-<ts>` 跑写入阶段，整体回滚只需切回原分支 |
+| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 的健康度（state schema / 栈一致性 / forbidden 路径 / hook 引用 / 脚本语法 / settings.json / 可执行权限），输出 `healthy \| drifted \| broken` |
 
 ### 常用场景
 
@@ -211,10 +212,21 @@ CLAUDE.md 在多栈项目里会用 `## Stacks`（多栈变体）而非 `## Stack
 
 ## 环境要求
 
-- **必需**：`git`、`bash` 4+
+### 支持矩阵（v2.5 明确）
+
+| 平台 | 支持级别 | 备注 |
+|---|---|---|
+| Linux | 一等公民 | `timeout` 自带 |
+| macOS | 一等公民（v2.5 起） | 需 `brew install coreutils` 提供 `gtimeout`；hook 脚本自动 fallback。无 coreutils 时退化为无超时（仍可用，但失去 hook 卡死保护） |
+| WSL2 | 一等公民 | 与 Linux 等价 |
+| Windows 原生 | 不支持 | Phase 1 会标记跨平台风险并 defer 写入；用 WSL2 替代 |
+
+### 工具依赖
+
+- **必需**：`git`、`bash` 3.2+（macOS 自带版本可用，但部分高级特性需 bash 4+）
 - **Phase 7 hooks 必需**：`jq`（macOS：`brew install jq` / Ubuntu：`apt install jq`）
-- **可选**：`make`、`timeout`（GNU coreutils，Linux 自带；macOS 用 `brew install coreutils` 后用 `gtimeout` 或修改脚本）
-- **POSIX shell**：脚本默认 POSIX；Windows-first 项目 Phase 1 会标记跨平台风险，Phase 6/7 给替代方案或显式 defer
+- **强烈建议**：`coreutils`（macOS：`brew install coreutils`，提供 `gtimeout`）
+- **可选**：`make`
 
 ---
 
@@ -248,9 +260,20 @@ CLAUDE.md 在多栈项目里会用 `## Stacks`（多栈变体）而非 `## Stack
 
 ---
 
+## 与 `claudemd` 插件共存（v2.5）
+
+如果你的环境装了 [`claudemd` 插件](https://github.com/anthropics/claude-code)（生态里专门管 CLAUDE.md 规范的工具），Phase 3 会探测它的存在：
+
+- **claudemd 已装** → onboard 只生成 onboard 特有的节：`## Stacks` / `## Forbidden` / `## Testing` / `## Change Policy`；不动 claudemd 管辖的规范节（如 banned-vocab、specificity 等）
+- **未装** → 走完整模板
+
+两个工具的"归属节"会写入 `.claude/onboarding-state.json` 的 `phase_3.claudemd_coexistence`，后续 `--update` 会保持这个分工。
+
+---
+
 ## 升级与版本
 
-当前版本：**v2.4**（v2 系列收官版）。
+当前版本：**v2.5**。
 
 升级到未来版本：先 pull 新的 Skill 包，然后跑 `/onboard --update`。Phase 0.5 Migration 会自动处理 schema 差异和决策继承。
 
