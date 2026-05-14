@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.8)
+# /onboard — Legacy Project Onboarding Protocol (v2.9)
 
 参数：`$ARGUMENTS`
 
@@ -561,7 +561,8 @@ next:         Phase 1 (Discovery)
    | v2.5 及之前 | `mode`、`git_topology`、`team_signals`、`git_host`、`mode_migration`、`git_info_exclude_injected` | v2.5 及之前都是 share 行为 → `mode: "share"`、`mode_migration: null`；其余字段重跑 Phase 0 探测填充 |
    | v2.6 及之前 | `phase_1_7`、`phase_2_5`、`phases.3.claude_md_tokens`、`phases.3.token_budget_override`、`phases.3.auto_compressions_applied` | 标 `update_phases: ["1_7", "2_5", "3"]`，重跑 Phase 1.7 深度分析、Phase 2.5 install plan、Phase 3 token 预算检查（CLAUDE.md 多半超 token，可能要压缩） |
    | v2.7 及之前 | `onboard_manifest_path`、`snapshots`、marker 块、`_onboard_managed` JSON 标记 | 反向扫描已写入的 PROJECT 文件 + settings 文件，按 v2.8 marker 协议补打 marker；写出 manifest；为缺 snapshot 的 managed file 标 `irrecoverable: true`（用户日后想 restore 只能从 git 历史） |
-   | 任何版本 | `entry_point` | 检测当前发布路径（Skill or Command） |
+   | v2.8 及之前 | `install_source`（plugin / user-skill / project-skill / command）、`hook_runtime_dir`（镜像目录路径，plugin 模式新增） | Phase 7 重跑：检测当前 install 来源，重写 settings 文件中的 hook 路径（旧路径 → 新路径）；plugin 模式默认建立 hook 镜像 `~/.claude/onboard-runtime/hooks/` |
+   | 任何版本 | `entry_point` | 检测当前发布路径（Skill or Command or Plugin） |
 
 **v2.5→v2.6 升级特殊处理**：v2.5 项目原本就是 share 行为，升级后 `mode: "share"`；用户若想改回 local-only 必须显式跑 `/onboard --update --local-only`，此时 Phase 0.5 标 `mode_migration: "share→local-only"` + Phase 8 输出"清理 .gitignore 中 onboard 条目 / 取消 git tracking 的 CLAUDE.md / settings.json"步骤（涉及 PROJECT 改动 → hard AUTH）。
 
@@ -1314,30 +1315,38 @@ CI 修改只验证 yaml 合法性 + 命令字符串变更；实际 CI 跑通需 
 
 ## Phase 7 · Claude Code Hooks
 
-### 发布路径决策（v2.4 新增）+ 模式决策（v2.6 新增）
+### 发布路径决策（v2.9 三种 install 来源 + 模式决策）
 
 Phase 7 行为同时依两个维度决定：
 
-#### 维度 1：skill vs command 形式
+#### 维度 1：install 来源（v2.9 新增 plugin 模式）
 
-| 形式 | hook 脚本来源 | Phase 7 动作 |
-|---|---|---|
-| **Skill** (`.claude/skills/onboard/` 或 `~/.claude/skills/onboard/`) | supporting files：`hooks/*.sh` | 仅写 settings 文件，引用 hook 路径；**不复制**脚本 |
-| **Command** (`.claude/commands/onboard.md`) | 命令运行时动态生成 | 写 `.claude/hooks/*.sh` + 写 settings 文件引用 |
+| 来源 | 检测信号 | hook 脚本位置 | hook 路径引用变量 |
+|---|---|---|---|
+| **Plugin**（`/plugin install onboard`） | 环境变量 `${CLAUDE_PLUGIN_ROOT}` 存在 + SKILL.md 路径含 `/.claude/plugins/cache/` | `${CLAUDE_PLUGIN_ROOT}/hooks/*.sh`（plugin 缓存内，ephemeral） | `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh` |
+| **User-global Skill**（`install.sh install`） | SKILL.md 路径在 `~/.claude/skills/onboard/` | `${HOME}/.claude/skills/onboard/hooks/*.sh`（稳定，install.sh 管理） | `${HOME}/.claude/skills/onboard/hooks/<name>.sh` |
+| **Project-shared Skill**（手动 `git clone` 到项目内） | SKILL.md 路径在 `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/` | 项目内 skill 目录 | `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/<name>.sh` |
+| **Command**（旧版兼容，`cp SKILL.md .claude/commands/onboard.md`） | 没有 skill 目录 + 有 commands 文件 | 命令运行时动态生成到 `${CLAUDE_PROJECT_DIR}/.claude/hooks/` | `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` |
 
-Skill 形式优势：脚本团队 review 一次复用到所有项目；升级 spec 时只升级 skill 包，不必每个项目重跑 Phase 7。
+**Plugin 模式特殊性**（v2.9）：
+- `${CLAUDE_PLUGIN_ROOT}` 是 plugin 缓存目录，**每次 plugin update 会变路径**（`~/.claude/plugins/cache/onboard@<marketplace>@<ver>/`）
+- 在 USER 项目的 `settings.json` 中硬编码该路径 → plugin 升级后路径失效
+- **Phase 7 plugin 模式策略**：首次写 settings 时检测，问用户：
+  - 选项 A：用 `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh` 直接引用（简洁，但 plugin 升级后第一次会议要等 Claude Code reload）
+  - 选项 B：把 hooks 复制到稳定的 `~/.claude/onboard-runtime/hooks/`（plugin 升级不影响项目设置；缺点是 plugin 更新后用户需 `/onboard --update` 同步新 hooks）
+  - 默认选 B（更稳健），用户可显式选 A
 
 #### 维度 2：local-only vs share 模式（v2.6 新增）
 
-| 模式 | settings 文件 | hook 路径引用 | .gitignore 改动 | .git/info/exclude 改动 |
+| 模式 | settings 文件 | hook 路径选哪个 | .gitignore 改动 | .git/info/exclude 改动 |
 |---|---|---|---|---|
-| `--local-only`（默认） | `.claude/settings.local.json` | Skill：`~/.claude/skills/onboard/hooks/<name>.sh`（用户全局安装路径）<br>Command：`${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` + 加入 `.git/info/exclude` | **不动** | 注入所有 hook 输出路径 + RUNTIME 路径 |
-| `--share` | `.claude/settings.json` | Skill：`${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/<name>.sh`（项目内 skill 路径）<br>Command：`${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` | 修订（Case A/B） | 仅注入 RUNTIME 路径 |
+| `--local-only`（默认） | `.claude/settings.local.json` | 按维度 1 install 来源选 | **不动** | 注入所有 hook 输出路径 + RUNTIME 路径 |
+| `--share` | `.claude/settings.json` | 同上 | 修订（Case A/B） | 仅注入 RUNTIME 路径 |
 
 **关键细节**：
-- local-only + Skill 形式 → hook 引用**全局安装路径**（`~/.claude/skills/onboard/hooks/...`），无项目内 skill 副本，零 PROJECT 改动
-- local-only + Command 形式 → hook 脚本写到 `.claude/hooks/*.sh` 但通过 `.git/info/exclude` 隐藏
-- local-only 模式 **强烈推荐使用 Skill 形式**（git 状态最干净；Command 形式要求 `.claude/hooks/` 目录可写，且 status 噪音多）
+- **plugin 模式 + local-only**（推荐默认组合）：settings.local.json 引用 `${HOME}/.claude/onboard-runtime/hooks/`（hook 镜像）或 `${CLAUDE_PLUGIN_ROOT}/hooks/`（直接引用）
+- **install.sh 安装 + local-only**：settings.local.json 引用 `${HOME}/.claude/skills/onboard/hooks/`（最稳健）
+- **share + project skill**：settings.json 引用 `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/`，团队成员 git pull 后即可用
 - `.claude/settings.local.json` 是 Claude Code 原生 per-user 配置文件，约定不入仓——业界标准做法
 
 ### Hook 深度合并策略（v2.4 关键规则，处理第三方 hook 共存）
@@ -2111,7 +2120,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 状态文件结构（v2.8 schema）
+## 状态文件结构（v2.9 schema）
 
 **路径**：
 - `--local-only` 模式（默认）：`.claude/local-only/onboarding-state.json`
@@ -2119,8 +2128,8 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ```json
 {
-  "version": "2.8",
-  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | 2.6 | 2.7 | null",
+  "version": "2.9",
+  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | 2.6 | 2.7 | 2.8 | null",
   "mode": "local-only | share",
   "mode_migration": "local-only→share | share→local-only | null",
   "started_at": "...",
@@ -2239,7 +2248,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 元规则（给执行此命令的 Claude 实例，v2.8 共 22 条）
+## 元规则（给执行此命令的 Claude 实例，v2.9 共 23 条）
 
 > v2.3 元规则 9-14 与 Iron Laws 16-19 重复，v2.4 已删除冗余。元规则只保留执行操作层面、Iron Laws 不直接涵盖的指引。
 
@@ -2265,4 +2274,5 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 20. **（v2.8）所有 PROJECT 写入必须可逆**：line-based 文件用 `# >>> /onboard v<ver>` 块标；JSON 用 `_onboard_managed: true` 字段；同时维护 `onboard-manifest.json` 作为权威清单。任何不加 marker / 不写 manifest 的 PROJECT 写入是 §8 SAFETY 违规。
 21. **（v2.8）首次写入前 snapshot**：Phase 3/4/6/7/8 即将修改既有 PROJECT 文件时，**必须**先快照到 `<state-dir>/onboard-snapshots/<name>.<ISO>.phase<N>.pre`，并在 `index.jsonl` 追加记录。无 snapshot 的写入 = 不可逆 = 拒绝执行。
 22. **（v2.8）卸载是单方向不可逆操作**：`--uninstall` **不**用 batch AUTH；每类删除单独 hard AUTH；用户选 restore-snapshot 时优先用 pre-modify 而非 post-install snapshot；卸载本身要可重入（中途失败不留半成品）。
+23. **（v2.9）Plugin 路径用 `${CLAUDE_PLUGIN_ROOT}` 但禁止硬编码到 user settings**：`${CLAUDE_PLUGIN_ROOT}` 是 plugin 缓存路径（`~/.claude/plugins/cache/onboard@<marketplace>@<ver>/`），每次 plugin update 会变。Phase 7 在 plugin 安装模式下**默认**镜像 hook 到稳定路径（`${HOME}/.claude/onboard-runtime/hooks/`）写入 user settings；要直接引用 `${CLAUDE_PLUGIN_ROOT}` 必须用户显式 opt-in（接受 plugin 升级期间 hook 短暂失效的风险）。
 ```

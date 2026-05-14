@@ -14,30 +14,36 @@
 
 三条等价的安装路径，按你的 Claude Code 版本与团队习惯选一条。
 
-### 路径 A · Claude Code 原生 `/plugin install`（推荐，v2.8+）
+### 路径 A · Claude Code 原生 plugin marketplace（推荐，v2.9+）
 
-如果你的 Claude Code 版本支持 `/plugin install`：
+完全符合 Claude Code 插件标准。两条命令：
 
 ```
+/plugin marketplace add sdsrss/onboard
 /plugin install onboard
 ```
 
-安装到 `~/.claude/plugins/onboard/`（或 Claude Code 的标准 plugin 路径）。会执行 `scripts/lifecycle/install.sh` 钩子，验证依赖 + chmod 脚本。
+第一条把本 GitHub 仓库注册为 plugin marketplace（仓库根有 `.claude-plugin/marketplace.json`，Claude Code 据此发现 plugin）。第二条从该 marketplace 安装 onboard plugin（`.claude-plugin/plugin.json` 描述 plugin 本身）。安装后 `/onboard` 命令立即可用。
 
 升级：
 
 ```
+/plugin marketplace update onboard
 /plugin update onboard
 ```
 
 卸载：
 
 ```
-# 先在每个 onboarded 的项目里跑这一步
+# 先在每个 onboarded 的项目里跑这一步（清理项目级痕迹）
 cd <project> && /onboard --uninstall
 # 然后卸载全局 plugin
 /plugin uninstall onboard
+# （可选）移除 marketplace 注册
+/plugin marketplace remove onboard
 ```
+
+**plugin 缓存位置**：`~/.claude/plugins/cache/onboard@onboard/`（路径含 marketplace 名）。每次 `/plugin update` 会变；onboard 内部用 `${CLAUDE_PLUGIN_ROOT}` 变量引用，user settings.json 默认走稳定镜像（详见 [Plugin 路径行为](#plugin-路径行为)）。
 
 ### 路径 B · `curl | bash` 通用安装（v2.8+）
 
@@ -110,7 +116,7 @@ rm -rf ~/.claude/skills/onboard
 
 ### 项目级 vs 全局安装
 
-| 维度 | 全局（`~/.claude/skills/`） | 项目级（`./.claude/skills/`） |
+| 维度 | 全局（`~/.claude/skills/` 或 plugin 缓存） | 项目级（`./.claude/skills/`） |
 |---|---|---|
 | 入仓 | 否 | 是（团队共享） |
 | 多机同步 | 各机器各装 | git pull 即同步 |
@@ -118,7 +124,15 @@ rm -rf ~/.claude/skills/onboard
 | 团队拒绝 AI 时 | 仍可用（个人） | 不该用（污染团队） |
 | 推荐 | local-only 模式 / 个人试水 | share 模式 / 团队认可后 |
 
-**强烈建议默认全局安装**——配合 `/onboard --local-only`（v2.6+ 默认）做到对团队 0 影响。
+**强烈建议默认全局安装**（路径 A 或 B）——配合 `/onboard --local-only`（v2.6+ 默认）做到对团队 0 影响。
+
+### Plugin 路径行为
+
+通过路径 A 安装时，onboard 文件位于 plugin 缓存 `~/.claude/plugins/cache/onboard@onboard/`。**该路径含版本号，每次 `/plugin update` 会变**。
+
+为避免 user settings.json 中硬编码该不稳定路径，onboard v2.9 在 plugin 模式下 Phase 7 **默认镜像** hook 脚本到稳定位置 `~/.claude/onboard-runtime/hooks/`，user settings 引用该镜像而非 plugin 缓存。Plugin 升级后用户跑 `/onboard --update` 同步新 hooks 到镜像。
+
+要直接用 `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh`（不建镜像）可在 `/onboard` 启动时显式选择 "direct" 选项——接受 plugin 升级期间 Claude Code 重载前 hooks 短暂失效的风险。
 
 ---
 
@@ -419,7 +433,18 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.8**。
+当前版本：**v2.9**。
+
+**v2.9 新增能力一览**：
+- `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 标准化插件安装
+- `.claude-plugin/marketplace.json` + `.claude-plugin/plugin.json`（符合 Claude Code 官方 schema）
+- Phase 7 新增 install 来源检测（Plugin / User-skill / Project-skill / Command 四种），自动选对的 hook 路径变量
+- Plugin 模式下默认建立 hook 镜像（`~/.claude/onboard-runtime/hooks/`）避免 user settings 引用 ephemeral plugin 缓存路径
+- 元规则 23：plugin 路径不可硬编码到 user settings
+
+**从 v2.8 升级**：
+- `/onboard --update` 触发 Phase 0.5 Migration 检测当前 install 来源，重写 settings 中的 hook 路径
+- 新装 plugin 模式自动建立 hook 镜像
 
 **v2.8 新增能力一览**：
 - 通用 `install.sh` 安装器（curl-bash 风格）+ `.claude-plugin/plugin.json` 原生插件清单

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "onboard",
+  "owner": {
+    "name": "sds",
+    "email": "2576vschsq@privaterelay.appleid.com"
+  },
+  "description": "Marketplace hosting the /onboard skill — legacy project onboarding protocol for Claude Code (compact CLAUDE.md, hook installation, forbidden zone management, CI alignment, install plan).",
+  "version": "2.9.0",
+  "plugins": [
+    {
+      "name": "onboard",
+      "source": "./",
+      "description": "Legacy project onboarding protocol for Claude Code. Analyzes the project, generates a compact CLAUDE.md, configures hooks, manages forbidden zones, aligns CI, and batches install plan. Default mode --local-only writes zero PROJECT files (no team pollution).",
+      "version": "2.9.0",
+      "author": {
+        "name": "sds"
+      },
+      "homepage": "https://github.com/sdsrss/onboard",
+      "repository": "https://github.com/sdsrss/onboard",
+      "license": "MIT",
+      "keywords": [
+        "onboarding",
+        "claude-code",
+        "skill",
+        "project-setup",
+        "automation",
+        "hooks",
+        "ci-alignment",
+        "multi-language"
+      ],
+      "category": "project-setup",
+      "tags": ["onboarding", "skill", "hooks", "configuration", "multi-stack"]
+    }
+  ]
+}

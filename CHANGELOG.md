@@ -4,7 +4,44 @@
 
 ---
 
-## v2.8 — 完美的安装/更新/卸载（current）
+## v2.9 — 标准 Claude Code plugin marketplace 支持（current）
+
+实现官方 `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 流程。修正 v2.8 对 plugin 系统的几个错误假设。
+
+### Added
+
+- **`.claude-plugin/marketplace.json`**（关键缺失）：仓库根 marketplace catalog，符合 Claude Code 官方 marketplace schema（`name`/`owner`/`plugins[]`）。这是 `/plugin marketplace add sdsrss/onboard` 成功的必要条件
+- **Phase 7 install 来源检测**：四种来源自动识别
+  - Plugin（`/plugin install onboard`）：检测 `${CLAUDE_PLUGIN_ROOT}` 环境变量 + SKILL.md 路径含 `/.claude/plugins/cache/`
+  - User-global skill（`install.sh install`）：检测 SKILL.md 在 `~/.claude/skills/onboard/`
+  - Project-shared skill（手动 clone 到项目内）：检测 SKILL.md 在 `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/`
+  - Command（旧版兼容）：commands 路径
+- **Plugin 模式 hook 镜像**：plugin 缓存路径含版本号且会随 update 变化（`~/.claude/plugins/cache/onboard@onboard@<ver>/`），onboard v2.9 在 plugin 安装下**默认镜像** hook 到稳定位置 `~/.claude/onboard-runtime/hooks/`，user settings 引用镜像；plugin 升级后用户跑 `/onboard --update` 同步
+- **元规则 23**（v2.9 新增）：plugin 路径用 `${CLAUDE_PLUGIN_ROOT}` 但禁止硬编码到 user settings；默认走 hook 镜像
+
+### Changed
+
+- **`.claude-plugin/plugin.json` 精简到官方 schema**：移除 v2.8 引入的非标准字段 `lifecycle` / `platform` / `dependencies` / `supports` / `skills[]` / `files`（这些字段 Claude Code plugin 系统并不解析）。保留官方 schema 字段：`name` / `description` / `version` / `author` / `homepage` / `repository` / `license` / `keywords`
+- **`scripts/lifecycle/*.sh` 角色澄清**：这些脚本**不是** Claude Code plugin 生命周期钩子（plugin 系统没有 install/update/uninstall hooks 概念）；它们是 `install.sh` 通用安装器的辅助脚本。在 README 与 CHANGELOG 明确标注，避免误导
+- **Phase 7 publish path 决策表升级到 4 行**：v2.8 的 2 维表（skill/command × local-only/share）扩展为 install 来源 × 模式
+- **状态文件 schema v2.9**：增加 `install_source`（plugin / user-skill / project-skill / command）+ `hook_runtime_dir`（plugin 模式镜像路径）
+- **Phase 0.5 Migration**：补 v2.8→v2.9 字段映射；检测当前 install 来源 + 重写 settings 中 hook 路径
+
+### Fixed
+
+- **v2.8 误以为 plugin 有 lifecycle hooks**：实际 Claude Code plugin 系统是文件复制 + skill/agent/hook/mcp/lsp 自动发现，**没有** install/update/uninstall lifecycle script 概念。v2.8 创建的 `scripts/lifecycle/*.sh` 实际不会被 `/plugin install` 调用——仅在 `install.sh` 通用安装器路径下有意义
+- **v2.8 plugin.json schema 偏离官方**：`lifecycle` / `platform` / `dependencies` 等字段是臆想，Claude Code 实际 schema 只有 `name` / `description` / `version` / `author` 等基础字段。v2.9 已纠正
+- **v2.8 hook 路径在 plugin 模式下错误**：settings 模板用 `${CLAUDE_PROJECT_DIR}` / `${HOME}`，但 plugin 安装下文件在 `~/.claude/plugins/cache/onboard@<marketplace>@<ver>/` —— 两种变量都不指向那里。v2.9 引入 `${CLAUDE_PLUGIN_ROOT}` 识别 + 镜像策略
+
+### Known limits
+
+- Plugin 模式镜像策略尚未在真实 `/plugin install onboard` 上端到端验证；可能需要根据 Claude Code 实际行为调整
+- `scripts/lifecycle/*.sh` 现在角色尴尬（不是 plugin lifecycle，也不是必需），下一版可能考虑删除或重组
+- marketplace.json 中 plugin source 用 `"./"` 表示"plugin 即 marketplace 根目录"——这种单 plugin 仓库布局在 Claude Code 实际行为下是否兼容，需要 dogfooding 验证
+
+---
+
+## v2.8 — 完美的安装/更新/卸载
 
 把"装得上、留得净、卸得干净"做到 Iron 级。两条安装通道并行存在 + 全链路可逆性 + snapshot/restore。
 

@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.8). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.9). The "code" being maintained is:
 
-- `SKILL.md` — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), and Uninstall Mode + marker/snapshot protocols (v2.8+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill when placed under `.claude/skills/onboard/`.
+- `SKILL.md` — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), Uninstall Mode + marker/snapshot protocols (v2.8+), and Plugin marketplace install-source detection (v2.9+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill when placed under `.claude/skills/onboard/`.
 - `hooks/*.sh` (4 scripts) — supporting files referenced from settings files by the *installer project*, not run inside this repo.
 - `settings.template.json` — reference config for `--share` mode (`.claude/settings.json`).
-- `settings.local.template.json` (v2.6) — reference config for `--local-only` mode (`.claude/settings.local.json`); hooks reference user-global `~/.claude/skills/onboard/` install path.
+- `settings.local.template.json` (v2.6) — reference config for `--local-only` mode (`.claude/settings.local.json`).
 - `install.sh` (v2.8) — universal installer (install/update/uninstall/doctor); works via `curl | bash`.
-- `.claude-plugin/plugin.json` (v2.8) — Claude Code plugin manifest for `/plugin install onboard`.
-- `scripts/lifecycle/*.sh` (v2.8) — install/update/uninstall lifecycle hooks called by `/plugin <action> onboard`.
+- `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema.
+- `.claude-plugin/marketplace.json` (v2.9) — Claude Code plugin marketplace catalog at repo root; required for `/plugin marketplace add sdsrss/onboard` to find the plugin.
+- `scripts/lifecycle/*.sh` (v2.8) — NOT Claude Code plugin lifecycle hooks (the plugin system has no such concept); these are helper scripts for the `install.sh` universal installer path only.
 - `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
@@ -51,6 +52,8 @@ Default-flipping was deliberate: most companies have only a few AI-tool early ad
 
 **Reversibility (v2.8, Iron-grade)** — every PROJECT write is bracketed by markers (line-based files: `# >>> /onboard v<ver> >>>`; markdown: `<!-- >>> -->`; JSON: `_onboard_managed: true`) and tracked in a manifest at `<state-dir>/onboard-manifest.json`. Phase 3/4/6/7/8 snapshot original PROJECT files to `<state-dir>/onboard-snapshots/` BEFORE first modification. `/onboard --uninstall` uses manifest + markers to surgically reverse; users can also choose `restore-snapshot` to recover the pre-onboard state.
 
+**Plugin marketplace install (v2.9)** — repo supports `/plugin marketplace add sdsrss/onboard` via `.claude-plugin/marketplace.json` (catalog) + `.claude-plugin/plugin.json` (canonical schema only). Phase 7 detects install source (Plugin / User-skill / Project-skill / Command) and chooses the correct hook path variable (`${CLAUDE_PLUGIN_ROOT}` / `${HOME}/.claude/skills/onboard/` / `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/` / `${CLAUDE_PROJECT_DIR}/.claude/hooks/`). Critical: `${CLAUDE_PLUGIN_ROOT}` is ephemeral (changes with every plugin update), so onboard's default in plugin mode is to mirror hook scripts to a stable `~/.claude/onboard-runtime/hooks/` location and reference *that* in user settings — not `${CLAUDE_PLUGIN_ROOT}` directly. Plugin updates require `/onboard --update` to refresh the mirror.
+
 ## Iron Laws and meta-rules (non-negotiable when editing SKILL.md)
 
 SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules** (v2.6 added 13–16; v2.7 added 17–19). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
@@ -68,6 +71,7 @@ SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules*
 - **Meta-rule 20 (v2.8 all PROJECT writes must be reversible)** — write without marker / without manifest entry = §8 SAFETY violation. When adding a new Phase that touches PROJECT files, you must (a) define the marker form (line-based / markdown / JSON), (b) update the manifest schema, (c) update `/onboard --uninstall` to recognize it.
 - **Meta-rule 21 (v2.8 snapshot before first modify)** — Phase 3/4/6/7/8 must snapshot existing PROJECT files to `<state-dir>/onboard-snapshots/<name>.<ISO>.phase<N>.pre` before first modification. No snapshot = no write.
 - **Meta-rule 22 (v2.8 uninstall is single-direction)** — `--uninstall` does NOT use batch AUTH; each removal class gets its own hard AUTH; uninstall must be re-entrant (resumable on mid-way failure).
+- **Meta-rule 23 (v2.9 plugin paths are ephemeral)** — `${CLAUDE_PLUGIN_ROOT}` changes with every plugin update. Never hard-code it into user settings.json. In plugin install mode, Phase 7 default is to mirror hook scripts to stable `~/.claude/onboard-runtime/hooks/` and reference that mirror. Direct `${CLAUDE_PLUGIN_ROOT}` reference requires explicit user opt-in (accepting short-lived hook failure during plugin updates until Claude Code reloads).
 
 When in doubt about whether a change requires bumping versions or only an edit, read the relevant Phase section of SKILL.md end-to-end — phases reference Iron Laws by number.
 
@@ -88,11 +92,13 @@ There is no build, lint, or test framework for this repo itself — it ships scr
 
 ```bash
 # Syntax-check every hook script (must pass with no output)
-bash -n hooks/*.sh
+bash -n hooks/*.sh install.sh scripts/lifecycle/*.sh
 
-# Validate both settings templates are well-formed JSON
+# Validate all manifests + templates are well-formed JSON
 jq empty < settings.template.json
 jq empty < settings.local.template.json
+jq empty < .claude-plugin/plugin.json
+jq empty < .claude-plugin/marketplace.json
 
 # Make hooks executable (consumers do this; verify mode after edits)
 ls -l hooks/*.sh   # expect -rwxr-xr-x
