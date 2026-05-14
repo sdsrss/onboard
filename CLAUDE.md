@@ -4,16 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.9). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.10). The "code" being maintained is:
 
-- `SKILL.md` — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), Uninstall Mode + marker/snapshot protocols (v2.8+), and Plugin marketplace install-source detection (v2.9+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill when placed under `.claude/skills/onboard/`.
-- `hooks/*.sh` (4 scripts) — supporting files referenced from settings files by the *installer project*, not run inside this repo.
-- `settings.template.json` — reference config for `--share` mode (`.claude/settings.json`).
-- `settings.local.template.json` (v2.6) — reference config for `--local-only` mode (`.claude/settings.local.json`).
-- `install.sh` (v2.8) — universal installer (install/update/uninstall/doctor); works via `curl | bash`.
-- `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema.
+- `skills/onboard/SKILL.md` (v2.10 moved here from repo root) — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), Uninstall Mode + marker/snapshot protocols (v2.8+), and Plugin marketplace install-source detection (v2.9+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill — at `skills/<name>/` for plugin discovery, or under standalone `.claude/skills/onboard/` after install.sh.
+- `skills/onboard/hooks/*.sh` (v2.10 moved) — 4 hook scripts; git index mode `100755` (executable).
+- `skills/onboard/settings.template.json` + `skills/onboard/settings.local.template.json` (v2.10 moved) — reference configs for `--share` / `--local-only` modes; co-located with SKILL.md.
+- `install.sh` (v2.8, v2.10 redesigned) — universal installer (install/update/uninstall/doctor); uses staging cache at `~/.claude/.cache/onboard-source/` for fast updates; copies `skills/onboard/*` into install target.
+- `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema only.
 - `.claude-plugin/marketplace.json` (v2.9) — Claude Code plugin marketplace catalog at repo root; required for `/plugin marketplace add sdsrss/onboard` to find the plugin.
-- `scripts/lifecycle/*.sh` (v2.8) — NOT Claude Code plugin lifecycle hooks (the plugin system has no such concept); these are helper scripts for the `install.sh` universal installer path only.
+- `scripts/lifecycle/*.sh` (v2.8) — NOT Claude Code plugin lifecycle hooks (the plugin system has no such concept); helper scripts for the `install.sh` universal installer path only.
 - `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
@@ -92,13 +91,16 @@ There is no build, lint, or test framework for this repo itself — it ships scr
 
 ```bash
 # Syntax-check every hook script (must pass with no output)
-bash -n hooks/*.sh install.sh scripts/lifecycle/*.sh
+bash -n skills/onboard/hooks/*.sh install.sh scripts/lifecycle/*.sh
 
 # Validate all manifests + templates are well-formed JSON
-jq empty < settings.template.json
-jq empty < settings.local.template.json
+jq empty < skills/onboard/settings.template.json
+jq empty < skills/onboard/settings.local.template.json
 jq empty < .claude-plugin/plugin.json
 jq empty < .claude-plugin/marketplace.json
+
+# Full end-to-end sandbox test (/plugin marketplace add + /plugin install simulation)
+/tmp/onboard-plugin-test.sh   # see commit for source; 24 assertions; ~/.claude untouched
 
 # Make hooks executable (consumers do this; verify mode after edits)
 ls -l hooks/*.sh   # expect -rwxr-xr-x

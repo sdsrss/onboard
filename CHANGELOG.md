@@ -4,7 +4,44 @@
 
 ---
 
-## v2.9 — 标准 Claude Code plugin marketplace 支持（current）
+## v2.10 — 结构修正：sandbox 测试通过 `/plugin install onboard`（current）
+
+实测发现 v2.9 仍有两个阻塞性问题，**真实 `/plugin install onboard` 不会工作**。v2.10 修复并通过 24 项沙箱模拟测试。
+
+### Fixed（v2.9 的两个 ship-blocker）
+
+- **结构性 BUG**：SKILL.md 在仓库根；hook 脚本在 `hooks/` 根。Claude Code plugin auto-discovery **只扫描 `skills/<name>/SKILL.md`**——根级 SKILL.md 完全被忽略。结果：`/plugin install onboard` 成功，但 `/onboard:onboard` 命令不存在
+  - **修复**：`git mv SKILL.md → skills/onboard/SKILL.md`；`git mv hooks/ → skills/onboard/hooks/`；`git mv settings.template.json → skills/onboard/`；`git mv settings.local.template.json → skills/onboard/`
+  - 现在 plugin install 后，Claude Code 发现 `skills/onboard/SKILL.md` → 注册 `/onboard:onboard` slash command
+- **Git executable bit BUG**：v2.4–v2.9 期间所有 `*.sh` 在 git index 中是 `100644`（无执行位）。本机 ACL 让脚本看起来 executable，但任何 clone（包括 Claude Code 的 plugin install、install.sh 的 git clone）拿到的都是 non-executable
+  - **修复**：`git update-index --chmod=+x` 应用到 8 个脚本（4 hooks + install.sh + 3 lifecycle）；现在 index mode 全部是 `100755`
+  - 影响：标准 `git clone` 也能直接跑脚本了，不再需要手动 chmod
+
+### Added
+
+- **沙箱端到端测试**（`/tmp/onboard-plugin-test.sh`）：模拟 `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 完整流程
+  - 24 项检查：marketplace.json schema、kebab-case、reserved-name；plugin.json schema、name 一致性；component auto-discovery（skills/ commands/ agents/ hooks/.mcp.json/.lsp.json）；`${CLAUDE_PLUGIN_ROOT}` 解析；hook 脚本可执行 + 行为；slash command 注册
+  - 当前结果：**24 pass / 0 fail / 0 warn**
+
+### Changed
+
+- **install.sh 重新设计**：v2.9 假设 clone 整个 repo 到 install 目录；v2.10 改为 staging-then-copy 模型
+  - Stage cache：`~/.claude/.cache/onboard-source/`（保留 .git 用于 update）
+  - Install/update 时从 `<stage>/skills/onboard/*` 复制到 install target
+  - Uninstall 同时清 stage cache
+  - 还顺便复制 README/CHANGELOG/LICENSE 到 install target 作为本地参考
+- **plugin.json + marketplace.json 版本号 → 2.10.0**
+- **SKILL.md 标题版本号 → v2.10**
+
+### Known limits
+
+- 仍未在真实 `/plugin install onboard` 端到端 dogfood（沙箱测试是 spec-compliant 模拟，假设 Claude Code 严格按 docs 行为；实际可能有边缘差异）
+- Phase 7 plugin 模式 hook 镜像策略（v2.9 引入）的实际行为还没在真 plugin install 验证；需要 v2.11 实测后调整
+- 历史 v2.4-v2.9 用户从 git clone 装的项目级 skill，clone 后 hook 不可执行——他们要么重装、要么手动 chmod；下一版 SKILL.md Phase 7 可加自动 chmod 修复
+
+---
+
+## v2.9 — 标准 Claude Code plugin marketplace 支持
 
 实现官方 `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 流程。修正 v2.8 对 plugin 系统的几个错误假设。
 

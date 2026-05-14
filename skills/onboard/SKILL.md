@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.9)
+# /onboard — Legacy Project Onboarding Protocol (v2.10)
 
 参数：`$ARGUMENTS`
 

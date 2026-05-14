@@ -95,23 +95,46 @@ cd ~/.claude/skills/onboard && git pull && chmod +x hooks/*.sh
 rm -rf ~/.claude/skills/onboard
 ```
 
-### 安装后目录结构
+### 仓库布局（v2.10 plugin-canonical）
 
 ```
-~/.claude/skills/onboard/
-├── SKILL.md                    # 协议规范
+<repo>/                              # = marketplace root = plugin root
 ├── .claude-plugin/
-│   └── plugin.json             # /plugin install 元数据
+│   ├── marketplace.json            # /plugin marketplace add 入口
+│   └── plugin.json                 # plugin 元数据
+├── skills/onboard/                 # 标准 plugin 内 skill 目录
+│   ├── SKILL.md                    # 协议规范（v2.10 起从根移到这里）
+│   ├── hooks/                      # skill 内 hook 资源
+│   │   ├── guard-bash.sh           (executable in git index)
+│   │   ├── guard-edit.sh
+│   │   ├── post-edit-check.sh
+│   │   └── stop-verify.sh
+│   ├── settings.template.json      # share 模式参考
+│   └── settings.local.template.json # local-only 模式参考
+├── install.sh                      # 通用安装器（curl | bash）
+├── scripts/lifecycle/              # install.sh 辅助脚本
+└── README.md / CHANGELOG.md / LICENSE / CLAUDE.md
+```
+
+**install.sh 安装后的形状**（target = `~/.claude/skills/onboard/`）：
+
+```
+~/.claude/skills/onboard/            # install.sh 复制 skills/onboard/* 的内容
+├── SKILL.md
 ├── hooks/
-│   ├── guard-bash.sh           (executable)
-│   ├── guard-edit.sh           (executable)
-│   ├── post-edit-check.sh      (executable)
-│   └── stop-verify.sh          (executable)
-├── settings.template.json      # share 模式参考
-├── settings.local.template.json # local-only 模式参考
-├── scripts/lifecycle/          # /plugin 生命周期钩子
-├── install.sh                  # 通用安装器
-├── README.md / CHANGELOG.md / LICENSE
+├── settings.template.json
+├── settings.local.template.json
+└── (+ README / CHANGELOG / LICENSE 副本)
+```
+
+**plugin 安装后的形状**（cache = `~/.claude/plugins/cache/onboard@onboard/`）：
+
+```
+~/.claude/plugins/cache/onboard@onboard/  # 完整 repo 镜像
+├── .claude-plugin/
+├── skills/onboard/SKILL.md
+├── skills/onboard/hooks/
+└── ...
 ```
 
 ### 项目级 vs 全局安装
@@ -433,7 +456,18 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.9**。
+当前版本：**v2.10**。
+
+**v2.10 新增能力一览**：
+- **结构性修复**：skill 从仓库根移到 `skills/onboard/`（Claude Code plugin 标准布局），plugin install 现在能正确发现 skill
+- **Git executable bits 修复**：hook 脚本 + install.sh + lifecycle 脚本在 git index 中标记为 `100755`（之前是 `100644`，clone 后必须手动 chmod）
+- **install.sh 重新设计**：使用 staging cache `~/.claude/.cache/onboard-source/` 保留 git history，install/update 时从 stage 复制 `skills/onboard/*` 到 target
+- **Settings templates 同址**：从 repo root 移到 `skills/onboard/`，与 SKILL.md co-located
+- **沙箱 round-trip 测试**：通过 `/plugin marketplace add` + `/plugin install` 完整模拟测试（24 pass / 0 fail）
+
+**从 v2.9 升级**：
+- 重新跑 `install.sh install`（路径模型变了，stage cache 是新概念）
+- 已 onboarded 的项目 `/onboard --update` 触发 Phase 0.5 Migration 调整 settings hook 路径
 
 **v2.9 新增能力一览**：
 - `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 标准化插件安装

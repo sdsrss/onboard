@@ -16,9 +16,11 @@
 #   ONBOARD_TARGET  user | project         (default: user)
 #   ONBOARD_ALLOW_DIRTY  1 to skip dirty-tree check on update
 #
-# Idempotent: install on an existing install errors out with "use update"; update on a
-# missing install errors out with "run install first"; uninstall on a missing install
-# is a no-op.
+# v2.10 layout note:
+#   The repo organizes the skill at skills/onboard/ (Claude Code plugin convention).
+#   install.sh copies skills/onboard/<contents> into the install target so the
+#   target ends up shaped like a standalone skill: <target>/SKILL.md, <target>/hooks/.
+#   Source is kept at ~/.claude/.cache/onboard-source/ for fast updates.
 
 set -euo pipefail
 
@@ -30,10 +32,12 @@ ACTION="${1:-install}"
 case "$TARGET" in
   user)
     INSTALL_DIR="$HOME/.claude/skills/onboard"
+    STAGE_DIR="$HOME/.claude/.cache/onboard-source"
     ;;
   project)
     : "${CLAUDE_PROJECT_DIR:=$(pwd)}"
     INSTALL_DIR="$CLAUDE_PROJECT_DIR/.claude/skills/onboard"
+    STAGE_DIR="$CLAUDE_PROJECT_DIR/.claude/.cache/onboard-source"
     ;;
   *)
     echo "ERROR: ONBOARD_TARGET must be 'user' or 'project' (got '$TARGET')" >&2
@@ -69,9 +73,25 @@ current_version() {
     || echo "unknown"
 }
 
+deploy_skill_from_stage() {
+  if [ ! -d "$STAGE_DIR/skills/onboard" ]; then
+    err "stage missing skills/onboard/ — repo layout invalid"
+    exit 1
+  fi
+  rm -rf "$INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR"
+  cp -a "$STAGE_DIR/skills/onboard/." "$INSTALL_DIR/"
+  chmod +x "$INSTALL_DIR/hooks/"*.sh 2>/dev/null || true
+
+  for f in README.md CHANGELOG.md LICENSE; do
+    [ -f "$STAGE_DIR/$f" ] && cp "$STAGE_DIR/$f" "$INSTALL_DIR/" 2>/dev/null || true
+  done
+}
+
 do_install() {
   check_deps
   info "target: $TARGET → $INSTALL_DIR"
+  info "stage:           $STAGE_DIR"
 
   if [ -d "$INSTALL_DIR" ]; then
     local v
@@ -82,16 +102,15 @@ do_install() {
     exit 0
   fi
 
-  mkdir -p "$(dirname "$INSTALL_DIR")"
-  info "cloning $REPO @ $BRANCH"
-  if ! git clone --depth 1 --branch "$BRANCH" "$REPO" "$INSTALL_DIR" >/dev/null 2>&1; then
+  rm -rf "$STAGE_DIR"
+  mkdir -p "$(dirname "$STAGE_DIR")"
+  info "cloning $REPO @ $BRANCH into stage"
+  if ! git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR" >/dev/null 2>&1; then
     err "git clone failed. Check ONBOARD_REPO / ONBOARD_BRANCH and network."
     exit 1
   fi
 
-  chmod +x "$INSTALL_DIR"/hooks/*.sh 2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/install.sh 2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/scripts/lifecycle/*.sh 2>/dev/null || true
+  deploy_skill_from_stage
 
   local v
   v=$(current_version)
@@ -110,35 +129,37 @@ do_update() {
     err "run first:  $0 install"
     exit 1
   fi
-  if [ ! -d "$INSTALL_DIR/.git" ]; then
-    err "$INSTALL_DIR exists but is not a git checkout"
-    err "remove it manually then run:  $0 install"
-    exit 1
-  fi
 
   local old_v
   old_v=$(current_version)
   info "updating from v$old_v"
 
-  pushd "$INSTALL_DIR" >/dev/null
-
-  if [ "${ONBOARD_ALLOW_DIRTY:-0}" != "1" ]; then
-    if ! git diff --quiet HEAD 2>/dev/null || ! git diff --cached --quiet HEAD 2>/dev/null; then
-      popd >/dev/null
-      err "uncommitted local changes in $INSTALL_DIR"
-      err "either commit/stash them, or rerun with ONBOARD_ALLOW_DIRTY=1 to overwrite"
+  if [ ! -d "$STAGE_DIR/.git" ]; then
+    warn "stage cache missing at $STAGE_DIR — re-cloning"
+    rm -rf "$STAGE_DIR"
+    mkdir -p "$(dirname "$STAGE_DIR")"
+    if ! git clone --depth 1 --branch "$BRANCH" "$REPO" "$STAGE_DIR" >/dev/null 2>&1; then
+      err "git clone failed"
       exit 1
     fi
+  else
+    pushd "$STAGE_DIR" >/dev/null
+
+    if [ "${ONBOARD_ALLOW_DIRTY:-0}" != "1" ]; then
+      if ! git diff --quiet HEAD 2>/dev/null || ! git diff --cached --quiet HEAD 2>/dev/null; then
+        popd >/dev/null
+        err "uncommitted local changes in stage $STAGE_DIR"
+        err "either commit/stash them, or rerun with ONBOARD_ALLOW_DIRTY=1 to overwrite"
+        exit 1
+      fi
+    fi
+
+    git fetch --depth 1 origin "$BRANCH" >/dev/null 2>&1
+    git reset --hard "origin/$BRANCH" >/dev/null 2>&1
+    popd >/dev/null
   fi
 
-  git fetch --depth 1 origin "$BRANCH" >/dev/null 2>&1
-  git reset --hard "origin/$BRANCH" >/dev/null 2>&1
-
-  popd >/dev/null
-
-  chmod +x "$INSTALL_DIR"/hooks/*.sh 2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/install.sh 2>/dev/null || true
-  chmod +x "$INSTALL_DIR"/scripts/lifecycle/*.sh 2>/dev/null || true
+  deploy_skill_from_stage
 
   local new_v
   new_v=$(current_version)
@@ -150,13 +171,14 @@ do_update() {
 }
 
 do_uninstall() {
-  if [ ! -d "$INSTALL_DIR" ]; then
+  if [ ! -d "$INSTALL_DIR" ] && [ ! -d "$STAGE_DIR" ]; then
     warn "/onboard not installed at $INSTALL_DIR — nothing to remove"
     exit 0
   fi
 
   info "uninstall plan"
-  echo "  • Will remove: $INSTALL_DIR (global skill files)"
+  [ -d "$INSTALL_DIR" ] && echo "  • Will remove: $INSTALL_DIR (skill files)"
+  [ -d "$STAGE_DIR" ] && echo "  • Will remove: $STAGE_DIR (source cache)"
   echo ""
   warn "Per-project state in projects you've onboarded will NOT be touched."
   warn "For per-project cleanup, run inside each project before this uninstall:"
@@ -172,6 +194,7 @@ do_uninstall() {
   case "$ans" in
     y|Y|yes|YES)
       rm -rf "$INSTALL_DIR"
+      rm -rf "$STAGE_DIR"
       ok "/onboard global skill files removed"
       ;;
     *)
@@ -197,6 +220,8 @@ do_doctor() {
     echo "  ✗ not installed at $INSTALL_DIR"
     echo "    install with: $0 install"
   fi
+
+  echo "  stage cache   $([ -d "$STAGE_DIR" ] && echo "✓ $STAGE_DIR" || echo "✗ missing (will be re-cloned on update)")"
   echo ""
   echo "Required commands on PATH:"
   for cmd in git bash jq; do
@@ -230,8 +255,8 @@ Usage: install.sh [install|update|uninstall|doctor]
 
 Actions:
   install     Clone the skill into ~/.claude/skills/onboard (default)
-  update      Pull latest changes from origin (refuses on dirty tree)
-  uninstall   Remove the global skill install (asks for confirmation)
+  update      Pull latest changes from origin (refuses on dirty stage tree)
+  uninstall   Remove the global skill install + source cache (asks for confirmation)
   doctor      Diagnose installer state + dependency availability
 
 Environment overrides:
