@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.10). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.10.1). The "code" being maintained is:
 
 - `skills/onboard/SKILL.md` (v2.10 moved here from repo root) — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), Uninstall Mode + marker/snapshot protocols (v2.8+), and Plugin marketplace install-source detection (v2.9+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill — at `skills/<name>/` for plugin discovery, or under standalone `.claude/skills/onboard/` after install.sh.
 - `skills/onboard/hooks/*.sh` (v2.10 moved) — 4 hook scripts; git index mode `100755` (executable).
@@ -12,7 +12,7 @@ This repo is **not** an application — it is the `/onboard` **Claude Code Skill
 - `install.sh` (v2.8, v2.10 redesigned) — universal installer (install/update/uninstall/doctor); uses staging cache at `~/.claude/.cache/onboard-source/` for fast updates; copies `skills/onboard/*` into install target.
 - `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema only.
 - `.claude-plugin/marketplace.json` (v2.9) — Claude Code plugin marketplace catalog at repo root; required for `/plugin marketplace add sdsrss/onboard` to find the plugin.
-- `scripts/lifecycle/*.sh` (v2.8) — NOT Claude Code plugin lifecycle hooks (the plugin system has no such concept); helper scripts for the `install.sh` universal installer path only.
+- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution (24 assertions); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
 - `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
@@ -87,11 +87,11 @@ Do NOT add speculative/forward-looking features to SKILL.md without an evidence 
 
 ## Validation commands
 
-There is no build, lint, or test framework for this repo itself — it ships scripts and prose. The only mechanical checks SKILL.md mandates (see §"Phase 7 自动验证"):
+This repo ships scripts and prose — there is no application build/lint. The mechanical checks that gate a release:
 
 ```bash
-# Syntax-check every hook script (must pass with no output)
-bash -n skills/onboard/hooks/*.sh install.sh scripts/lifecycle/*.sh
+# Syntax-check every shell script (must pass with no output)
+bash -n skills/onboard/hooks/*.sh skills/onboard/scripts/*.sh install.sh tests/run.sh tests/integration/*.sh
 
 # Validate all manifests + templates are well-formed JSON
 jq empty < skills/onboard/settings.template.json
@@ -100,11 +100,14 @@ jq empty < .claude-plugin/plugin.json
 jq empty < .claude-plugin/marketplace.json
 
 # Full end-to-end sandbox test (/plugin marketplace add + /plugin install simulation)
-/tmp/onboard-plugin-test.sh   # see commit for source; 24 assertions; ~/.claude untouched
+bash tests/run.sh   # 24 assertions; sandbox under /tmp/onboard-plugin-sandbox; ~/.claude untouched
+# or a single test: bash tests/run.sh plugin-install
 
 # Make hooks executable (consumers do this; verify mode after edits)
-ls -l hooks/*.sh   # expect -rwxr-xr-x
+ls -l skills/onboard/hooks/*.sh   # expect -rwxr-xr-x
 ```
+
+Add a new integration test by dropping an executable `.sh` into `tests/integration/`; `tests/run.sh` picks it up automatically and aggregates exit codes.
 
 When editing a hook script, also re-read SKILL.md's "示例脚本" section for that hook — the spec embeds canonical versions, and drift between the embedded version and `hooks/*.sh` is a real failure mode (the embedded copy is what `/onboard` would regenerate in Command mode).
 

@@ -4,7 +4,37 @@
 
 ---
 
-## v2.10 — 结构修正：sandbox 测试通过 `/plugin install onboard`（current）
+## v2.10.1 — v2.10 后 dev infra 打磨（current）
+
+### Added
+
+- **`tests/` 测试基础设施入库**：v2.10 release 后从 `/tmp/onboard-plugin-test.sh` 迁入 repo
+  - `tests/integration/plugin-install.sh`：24 项沙箱断言，改用 `$SCRIPT_DIR/../..` 自动定位 repo root（消除硬编码绝对路径）；执行前检查 `jq` / `rsync` + `.claude-plugin/` 存在性
+  - `tests/run.sh`：通用 runner，自动跑 `tests/integration/*.sh`，聚合退出码；支持 `bash tests/run.sh <name>` 单跑
+  - v2.10 的 "24 pass / 0 fail / 0 warn" claim 从 ephemeral `/tmp` 变成 in-repo 回归保护
+- **`install.sh do_uninstall` 警告扩充**：列出 4 类 NOT removed 项（per-project state、hook entries、CLAUDE.md / CLAUDE.local.md 内容、`.gitignore` / `.git/info/exclude`），并在 rm 成功后打印手动清理 recipe（针对忘记跑 `/onboard --uninstall` 的用户）
+- **`skills/onboard/scripts/mirror-hooks.sh`（v2.9 prose-only 策略 → v2.10.1 可执行 helper）**：plugin 模式默认调用该脚本把 4 个 hook 从 ephemeral `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/` 镜像到稳定的 `${HOME}/.claude/onboard-runtime/hooks/`；同时写 `.mirror-manifest.json`（version + source + dest + mirrored_at + hooks）用于诊断
+  - 幂等：同 source 重跑 → 内容不变；新 source（plugin update）重跑 → manifest.source 更新
+  - 自动检测：无 `ONBOARD_MIRROR_SOURCE` env 时从脚本 sibling `../hooks/` 取（plugin 实际部署形态）
+  - 错误处理：source 目录不存在 / 缺少 4 个必需 hook → exit 非零
+  - `install.sh deploy_skill_from_stage` 同步加 `chmod +x "$INSTALL_DIR/scripts/"*.sh`
+- **`tests/integration/hook-mirror.sh`**：27 项断言（覆盖 mirror-hooks.sh 全部行为：fresh mirror / manifest schema / 幂等性 / plugin-update 模拟 / 自动检测 / 错误路径），首跑 27 pass / 0 fail
+
+### Changed
+
+- **SKILL.md Phase 7 plugin 模式策略**（line 1326 / 1334-1337 / 1347）：
+  - 修正 v2.10 layout 漏改：所有 `${CLAUDE_PLUGIN_ROOT}/hooks/*.sh` 引用补齐为 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/*.sh`（v2.10 已把 hooks 移到 `skills/onboard/hooks/`，但 Phase 7 prose 没同步更新——consumer Claude 按旧 spec 走会找不到文件）
+  - 选项 B（镜像，默认）从 prose-only "复制 hooks 到稳定路径" 落地为调用 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/scripts/mirror-hooks.sh`，consumer Claude 不再需要现场实现镜像逻辑（之前要按 spec 自己写 mkdir/cp/chmod/manifest 一遍——失败模式多、且不幂等）
+
+### Removed
+
+- **`scripts/lifecycle/*.sh`（3 文件，~3.7 KB）**：v2.8 误以为是 Claude Code plugin lifecycle hook，但 plugin 系统根本没有此概念；脚本自描述 "Plugin install lifecycle hook" 与现实矛盾。v2.10 已在 CHANGELOG 标过"角色尴尬"。`install.sh` 已自带全部 chmod / 健康检查 / 引导文案逻辑——3 脚本是 orphan dead code，没有任何调用者（grep `scripts/lifecycle` 在 install.sh 内零命中）
+  - 有用文案没丢：`scripts/lifecycle/uninstall.sh` 那段 "what this uninstall does NOT do" + 手动清理 recipe 已 merge 进 `install.sh do_uninstall`
+  - 同步清理：CLAUDE.md "What this repo is" 段；CLAUDE.md Validation commands 段 `bash -n` glob；README.md 仓库布局 tree diagram
+
+---
+
+## v2.10 — 结构修正：sandbox 测试通过 `/plugin install onboard`
 
 实测发现 v2.9 仍有两个阻塞性问题，**真实 `/plugin install onboard` 不会工作**。v2.10 修复并通过 24 项沙箱模拟测试。
 
@@ -19,9 +49,10 @@
 
 ### Added
 
-- **沙箱端到端测试**（`/tmp/onboard-plugin-test.sh`）：模拟 `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 完整流程
+- **沙箱端到端测试**（`tests/integration/plugin-install.sh`，通过 `tests/run.sh` 调度）：模拟 `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 完整流程
   - 24 项检查：marketplace.json schema、kebab-case、reserved-name；plugin.json schema、name 一致性；component auto-discovery（skills/ commands/ agents/ hooks/.mcp.json/.lsp.json）；`${CLAUDE_PLUGIN_ROOT}` 解析；hook 脚本可执行 + 行为；slash command 注册
   - 当前结果：**24 pass / 0 fail / 0 warn**
+  - v2.10 release 后入库（先前位于 `/tmp/onboard-plugin-test.sh`，重启即失）；现在 `bash tests/run.sh` 直接跑，repo 内回归保护
 
 ### Changed
 

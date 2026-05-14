@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.10)
+# /onboard — Legacy Project Onboarding Protocol (v2.10.1)
 
 参数：`$ARGUMENTS`
 
@@ -1323,7 +1323,7 @@ Phase 7 行为同时依两个维度决定：
 
 | 来源 | 检测信号 | hook 脚本位置 | hook 路径引用变量 |
 |---|---|---|---|
-| **Plugin**（`/plugin install onboard`） | 环境变量 `${CLAUDE_PLUGIN_ROOT}` 存在 + SKILL.md 路径含 `/.claude/plugins/cache/` | `${CLAUDE_PLUGIN_ROOT}/hooks/*.sh`（plugin 缓存内，ephemeral） | `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh` |
+| **Plugin**（`/plugin install onboard`） | 环境变量 `${CLAUDE_PLUGIN_ROOT}` 存在 + SKILL.md 路径含 `/.claude/plugins/cache/` | `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/*.sh`（plugin 缓存内，ephemeral；v2.10 起从根级 `hooks/` 移到 `skills/onboard/hooks/`） | 见下方 plugin 模式策略（默认走镜像，不写 ephemeral 路径） |
 | **User-global Skill**（`install.sh install`） | SKILL.md 路径在 `~/.claude/skills/onboard/` | `${HOME}/.claude/skills/onboard/hooks/*.sh`（稳定，install.sh 管理） | `${HOME}/.claude/skills/onboard/hooks/<name>.sh` |
 | **Project-shared Skill**（手动 `git clone` 到项目内） | SKILL.md 路径在 `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/` | 项目内 skill 目录 | `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/<name>.sh` |
 | **Command**（旧版兼容，`cp SKILL.md .claude/commands/onboard.md`） | 没有 skill 目录 + 有 commands 文件 | 命令运行时动态生成到 `${CLAUDE_PROJECT_DIR}/.claude/hooks/` | `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` |
@@ -1332,9 +1332,9 @@ Phase 7 行为同时依两个维度决定：
 - `${CLAUDE_PLUGIN_ROOT}` 是 plugin 缓存目录，**每次 plugin update 会变路径**（`~/.claude/plugins/cache/onboard@<marketplace>@<ver>/`）
 - 在 USER 项目的 `settings.json` 中硬编码该路径 → plugin 升级后路径失效
 - **Phase 7 plugin 模式策略**：首次写 settings 时检测，问用户：
-  - 选项 A：用 `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh` 直接引用（简洁，但 plugin 升级后第一次会议要等 Claude Code reload）
-  - 选项 B：把 hooks 复制到稳定的 `~/.claude/onboard-runtime/hooks/`（plugin 升级不影响项目设置；缺点是 plugin 更新后用户需 `/onboard --update` 同步新 hooks）
-  - 默认选 B（更稳健），用户可显式选 A
+  - 选项 A（opt-in，直接引用）：用 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/<name>.sh`（简洁，但 plugin 升级后 hook 短暂失效直到 Claude Code reload）
+  - 选项 B（**默认**，镜像 + 执行，v2.10.1 起有 helper script）：调用 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/scripts/mirror-hooks.sh` 把 4 个 hooks 镜像到稳定的 `${HOME}/.claude/onboard-runtime/hooks/`；settings 引用该镜像。脚本同时写 `${HOME}/.claude/onboard-runtime/.mirror-manifest.json` 记录 version/source/dest/mirrored_at/hooks 用于诊断；幂等，可在 plugin update 后重跑刷新。env override：`ONBOARD_MIRROR_SOURCE` / `ONBOARD_MIRROR_DEST`（测试 / 自定义部署用）
+  - 默认选 B（更稳健，且 v2.10.1 起有可执行 helper 兜底）；用户显式选 A 才直接引用 ephemeral 路径
 
 #### 维度 2：local-only vs share 模式（v2.6 新增）
 
@@ -1344,7 +1344,7 @@ Phase 7 行为同时依两个维度决定：
 | `--share` | `.claude/settings.json` | 同上 | 修订（Case A/B） | 仅注入 RUNTIME 路径 |
 
 **关键细节**：
-- **plugin 模式 + local-only**（推荐默认组合）：settings.local.json 引用 `${HOME}/.claude/onboard-runtime/hooks/`（hook 镜像）或 `${CLAUDE_PLUGIN_ROOT}/hooks/`（直接引用）
+- **plugin 模式 + local-only**（推荐默认组合）：settings.local.json 引用 `${HOME}/.claude/onboard-runtime/hooks/`（hook 镜像，默认；通过 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/scripts/mirror-hooks.sh` 建立）或 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/`（直接引用，opt-in）
 - **install.sh 安装 + local-only**：settings.local.json 引用 `${HOME}/.claude/skills/onboard/hooks/`（最稳健）
 - **share + project skill**：settings.json 引用 `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/`，团队成员 git pull 后即可用
 - `.claude/settings.local.json` 是 Claude Code 原生 per-user 配置文件，约定不入仓——业界标准做法

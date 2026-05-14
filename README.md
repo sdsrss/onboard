@@ -112,7 +112,7 @@ rm -rf ~/.claude/skills/onboard
 │   ├── settings.template.json      # share 模式参考
 │   └── settings.local.template.json # local-only 模式参考
 ├── install.sh                      # 通用安装器（curl | bash）
-├── scripts/lifecycle/              # install.sh 辅助脚本
+├── tests/                          # in-repo 沙箱测试（24 assertions, bash tests/run.sh）
 └── README.md / CHANGELOG.md / LICENSE / CLAUDE.md
 ```
 
@@ -456,7 +456,16 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.10**。
+当前版本：**v2.10.1**。
+
+**v2.10.1 改进**（dev infra hardening，不破坏兼容）：
+- 新增 `skills/onboard/scripts/mirror-hooks.sh` helper：plugin 模式默认调用，把 hooks 从 ephemeral `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/` 镜像到稳定 `${HOME}/.claude/onboard-runtime/hooks/`；写 `.mirror-manifest.json` 用于诊断；plugin 升级后重跑刷新
+- 沙箱测试入库 `tests/`（24 + 27 = 51 assertions），`bash tests/run.sh` PR 前回归
+- 删除 `scripts/lifecycle/*.sh`（v2.8 误判为 plugin lifecycle hook 的 orphan 脚本，install.sh 已自带全部逻辑）
+- SKILL.md Phase 7 plugin 模式路径修正（v2.10 layout 漏改的下游引用补齐）
+- `install.sh do_uninstall` 扩展手动清理 recipe
+
+**从 v2.10 升级**：不破坏兼容；plugin 模式用户下次 `/onboard --update` 会自动从 prose-only 镜像策略切换到调用 `mirror-hooks.sh` helper
 
 **v2.10 新增能力一览**：
 - **结构性修复**：skill 从仓库根移到 `skills/onboard/`（Claude Code plugin 标准布局），plugin install 现在能正确发现 skill

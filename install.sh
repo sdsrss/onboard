@@ -82,6 +82,7 @@ deploy_skill_from_stage() {
   mkdir -p "$INSTALL_DIR"
   cp -a "$STAGE_DIR/skills/onboard/." "$INSTALL_DIR/"
   chmod +x "$INSTALL_DIR/hooks/"*.sh 2>/dev/null || true
+  chmod +x "$INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
 
   for f in README.md CHANGELOG.md LICENSE; do
     [ -f "$STAGE_DIR/$f" ] && cp "$STAGE_DIR/$f" "$INSTALL_DIR/" 2>/dev/null || true
@@ -180,9 +181,14 @@ do_uninstall() {
   [ -d "$INSTALL_DIR" ] && echo "  • Will remove: $INSTALL_DIR (skill files)"
   [ -d "$STAGE_DIR" ] && echo "  • Will remove: $STAGE_DIR (source cache)"
   echo ""
-  warn "Per-project state in projects you've onboarded will NOT be touched."
-  warn "For per-project cleanup, run inside each project before this uninstall:"
-  warn "  /onboard --uninstall"
+  warn "What this global uninstall does NOT do:"
+  warn "  • Per-project state (.claude/onboarding-state.json or .claude/local-only/) is NOT removed"
+  warn "  • Per-project hook entries in settings.json / settings.local.json are NOT removed"
+  warn "  • CLAUDE.md / CLAUDE.local.md content written by onboard is NOT removed"
+  warn "  • .gitignore / .git/info/exclude lines written by onboard are NOT removed"
+  echo ""
+  warn "For per-project cleanup, run inside each project BEFORE this uninstall:"
+  warn "  cd <project> && /onboard --uninstall"
   echo ""
 
   if [ -t 0 ]; then
@@ -196,6 +202,20 @@ do_uninstall() {
       rm -rf "$INSTALL_DIR"
       rm -rf "$STAGE_DIR"
       ok "/onboard global skill files removed"
+      echo ""
+      echo "If you forgot per-project cleanup, manually clean each project:"
+      echo ""
+      echo "  # local-only mode projects"
+      echo "  rm -rf .claude/local-only"
+      echo "  # remove between '# >>> /onboard' and '# <<< /onboard' markers in:"
+      echo "  #   .git/info/exclude"
+      echo ""
+      echo "  # share mode projects"
+      echo "  # remove between markers in:"
+      echo "  #   .gitignore"
+      echo "  #   CLAUDE.md"
+      echo "  # remove entries with \"_onboard_managed\": true from:"
+      echo "  #   .claude/settings.json"
       ;;
     *)
       info "aborted"
