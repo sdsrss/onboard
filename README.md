@@ -105,27 +105,67 @@ Claude 会先输出**执行计划**（阶段清单、预估改动文件数、规
 
 | 参数 | 用途 |
 |---|---|
+| `--local-only` | **v2.6 新增，默认模式**：所有产物走 `.local.*` 约定 + `.git/info/exclude`，团队成员 pull 后零可见，零 .gitignore 改动 |
+| `--share` | **v2.6 新增**：team-share 模式（v2.5 及之前的默认）。OUTPUT 文件入仓共享。需要团队对 AI 工具有共识 |
 | `--dry-run` | 只输出"将要做什么"，不实际写入 |
 | `--phase=<n>` | 只跑指定阶段（0, 0.5, 1, 1.5, 2, 3-8） |
 | `--resume` | 从上次中断处继续（同版本状态文件） |
 | `--update` | 升级旧版 onboarding 到当前 spec（触发 Phase 0.5 Migration） |
 | `--strict` | 任何验证失败立即中止 |
-| `--isolate-branch` | 在专用分支 `chore/onboarding-<ts>` 跑写入阶段，整体回滚只需切回原分支 |
-| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 的健康度（state schema / 栈一致性 / forbidden 路径 / hook 引用 / 脚本语法 / settings.json / 可执行权限），输出 `healthy \| drifted \| broken` |
+| `--isolate-branch` | 在专用分支跑写入阶段（**仅 `--share` 模式有意义**，分支前缀自动从团队习惯探测，fallback `chore/`） |
+| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 健康度（D1-D10 共 10 项），输出 `healthy \| drifted \| broken` |
+
+### 决策树：我该用哪个模式？
+
+```
+我要 onboard 一个项目 →
+│
+├─ 个人项目 / 只有我一个 contributor？
+│  └─ 默认 --local-only（不入仓也行，方便干净）
+│     或者 --share（如果想多机同步配置）
+│
+├─ 团队项目，团队还没 AI 政策？
+│  ├─ 只是我个人试 → --local-only（默认，零团队污染）
+│  └─ 想推动团队用 AI → --share --isolate-branch（v2.6 自动开 PR / MR）
+│
+├─ 团队项目，团队已禁止 AI 工具入仓？
+│  └─ --local-only（强制，唯一合规选项）
+│
+└─ OSS 项目我只是 contributor？
+   └─ --local-only（除非 maintainer 明确同意）
+```
+
+**默认 `--local-only` 的设计理由**：现实里大多数公司不全员支持 AI 工具，少数人试用。默认不入仓 = 不强加 AI 工具给同事 = 零团队污染风险。
 
 ### 常用场景
 
-**新项目接入：**
+**首次接入（默认 local-only，安全无副作用）：**
 
 ```
 /onboard
 ```
 
-**已用旧版接入过，升级到 v2.4：**
+**确定团队接受 AI，想入仓共享：**
+
+```
+/onboard --share --isolate-branch
+```
+
+`--isolate-branch` 会自动建分支（前缀按团队习惯，比如 `infra/onboarding-...`），Phase 8 末尾按你的 git host (GitHub/GitLab/Gitea) offer 对应的 PR/MR 命令——只 offer 不自动执行。
+
+**已用旧版接入过，升级到 v2.6（保持原 mode）：**
 
 ```
 /onboard --update
 ```
+
+**已 share 模式 onboard，想撤回到 local-only：**
+
+```
+/onboard --update --local-only
+```
+
+会触发 hard AUTH——撤回涉及 .gitignore 修订 + 取消 git tracking。
 
 **不放心，先看一遍：**
 
@@ -133,25 +173,29 @@ Claude 会先输出**执行计划**（阶段清单、预估改动文件数、规
 /onboard --dry-run
 ```
 
-**想试一遍随时可整体回滚：**
-
-```
-/onboard --isolate-branch
-```
+**share 模式的整体回滚 / 接受：**
 
 不满意：
 
 ```bash
 git checkout <original-branch>
-git branch -D chore/onboarding-<ts>
+git branch -D <prefix>/onboarding-<ts>
 ```
 
-满意：
+满意（开 PR/MR 走团队 review）：
 
 ```bash
-git checkout <original-branch>
-git merge chore/onboarding-<ts>
+# GitHub
+gh pr create --base <original-branch> --draft
+
+# GitLab
+glab mr create --target-branch <original-branch> --draft
+
+# Gitea
+tea pulls create --base <original-branch>
 ```
+
+Phase 8 末尾会自动 offer 上面这条命令（含自动生成的 title + body），你确认后执行。
 
 ---
 
@@ -228,6 +272,18 @@ CLAUDE.md 在多栈项目里会用 `## Stacks`（多栈变体）而非 `## Stack
 - **强烈建议**：`coreutils`（macOS：`brew install coreutils`，提供 `gtimeout`）
 - **可选**：`make`
 
+### Git 托管平台支持（v2.6）
+
+| 平台 | CLI | 自动检测 | PR/MR 自动 offer | 模板路径 |
+|---|---|---|---|---|
+| GitHub | `gh` | ✓（远程 URL 含 `github.com`） | ✓ | `.github/PULL_REQUEST_TEMPLATE.md` |
+| GitLab | `glab` | ✓（远程 URL 含 `gitlab.`） | ✓ | `.gitlab/merge_request_templates/*.md` |
+| Gitea / Forgejo / Codeberg | `tea` | ✓ | ✓ | `.gitea/PULL_REQUEST_TEMPLATE.md` |
+| Bitbucket | — | ✓ | fallback web URL | — |
+| 自托管未识别 | — | unknown | fallback web URL | — |
+
+未装对应 CLI 时 fallback：Phase 8 末尾给出 web URL 让你手动开 PR/MR，附自动生成的 title 与 body 文本。**Onboard 永不自动执行开 PR/MR**——只 offer，你确认后才跑（开 PR 涉及外部系统状态变更，属 §5 hard AUTH）。
+
 ---
 
 ## 故障排查
@@ -273,7 +329,12 @@ CLAUDE.md 在多栈项目里会用 `## Stacks`（多栈变体）而非 `## Stack
 
 ## 升级与版本
 
-当前版本：**v2.5**。
+当前版本：**v2.6**。
+
+**从 v2.5 升级**：
+- 默认行为反转：v2.5 默认入仓，v2.6 默认 local-only
+- 已有 v2.5 onboarding 的项目 `--update` 后**保留 share 模式**（不会偷偷改默认）
+- 想撤回到 local-only：`/onboard --update --local-only`（会触发 hard AUTH）
 
 升级到未来版本：先 pull 新的 Skill 包，然后跑 `/onboard --update`。Phase 0.5 Migration 会自动处理 schema 差异和决策继承。
 

@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.5). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.6). The "code" being maintained is:
 
-- `SKILL.md` — the workflow spec that defines an 8-phase onboarding protocol (Phase 0 → Phase 8) plus a v2.5-added Doctor Mode (`--doctor`) for retrofitting Claude Code into legacy projects. This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) is what registers it as a Skill when placed under `.claude/skills/onboard/`.
-- `hooks/*.sh` (4 scripts) — supporting files referenced from `.claude/settings.json` by the *installer project*, not run inside this repo.
-- `settings.template.json` — reference config the installer project's `.claude/settings.json` is merged against.
+- `SKILL.md` — the workflow spec that defines an 8-phase onboarding protocol (Phase 0 → Phase 8), Doctor Mode (`--doctor`, v2.5+), and Mode model (`--local-only` default vs `--share`, v2.6+) for retrofitting Claude Code into legacy projects. This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) is what registers it as a Skill when placed under `.claude/skills/onboard/`.
+- `hooks/*.sh` (4 scripts) — supporting files referenced from settings files by the *installer project*, not run inside this repo.
+- `settings.template.json` — reference config for `--share` mode (`.claude/settings.json`).
+- `settings.local.template.json` (v2.6) — reference config for `--local-only` mode (`.claude/settings.local.json`); hooks reference user-global `~/.claude/skills/onboard/` install path.
 - `README.md` — install + usage guide for end users (the project installing this skill).
 - `CHANGELOG.md` — version history.
 
@@ -33,17 +34,25 @@ Consumers install this package into their project at `.claude/skills/onboard/`, 
 | `post-edit-check.sh` | PostToolUse / `Edit\|Write\|MultiEdit` | Append edited file to touched-files log; multi-stack format-check dispatch |
 | `stop-verify.sh` | Stop | Run lint/typecheck on touched files per `$ONBOARD_STOP_MODE` (`light` / `standard` / `strict`); emit `{decision: "block"}` JSON if any check fails |
 
-All four read `ONBOARD_STACKS_FILE` (a JSON list at `.claude/onboarding-logs/stacks.json` in the installer project) for multi-language dispatch.
+All four read `ONBOARD_STACKS_FILE` (a JSON list at `.claude/onboarding-logs/stacks.json` for share mode or `.claude/local-only/onboarding-logs/stacks.json` for local-only mode) for multi-language dispatch.
+
+**Mode model (v2.6, default-flipping change)** — `/onboard` runs in one of two modes:
+- `--local-only` (default): zero PROJECT changes. Knowledge → `CLAUDE.local.md`; settings → `.claude/settings.local.json`; state → `.claude/local-only/`. All paths injected into `.git/info/exclude`, **.gitignore untouched**. Hook references use user-global `~/.claude/skills/onboard/` path. Team pull sees zero onboard artifacts.
+- `--share` (opt-in): the v2.5-and-earlier behavior. OUTPUT files committed; .gitignore revised; Phase 8 offers PR/MR via host adapter.
+
+Default-flipping was deliberate: most companies have only a few AI-tool early adopters, so "default commit" forces AI tooling on uninvolved teammates. Default local-only = zero team-pollution risk.
 
 ## Iron Laws and meta-rules (non-negotiable when editing SKILL.md)
 
-SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **12 meta-rules**. They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
+SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **16 meta-rules** (v2.6 added rules 13–16). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
 
 - **Iron Law 15 (Exit code OR JSON, never both)** — every hook script must pick one output protocol. Mixing exit 2 with stdout JSON makes Claude Code ignore the JSON. Existing hooks always use `exit 0 + stdout JSON`.
 - **Iron Law 19 (warn-only must exit 0)** — checks marked deferred (e.g. preexisting typecheck violations) MUST output warnings via stderr but never return non-zero, or they block `git push`.
-- **Iron Law 16 (Forbidden zones global)** — `confirmed_forbidden_zones` flow through CLAUDE.md `## Forbidden`, lint ignore files, `ONBOARD_FORBIDDEN_PATHS` env, and `guard-edit.sh`. Changing one without the others creates drift; touch them as a set.
-- **File four-classification** (PROJECT / RUNTIME / OUTPUT / LOCAL-SIDE-EFFECT) — touch budget governance only applies to PROJECT. `.git/hooks/*` and the isolation branch are LOCAL-SIDE-EFFECT and not counted.
+- **Iron Law 16 (Forbidden zones global)** — `confirmed_forbidden_zones` flow through CLAUDE.md `## Forbidden`, lint ignore files, `ONBOARD_FORBIDDEN_PATHS` env, and `guard-edit.sh`. In local-only mode forbidden zones are enforced **only via hook env**, NOT injected into lint ignore files (avoids PROJECT modification).
+- **File four-classification** (PROJECT / RUNTIME / OUTPUT / LOCAL-SIDE-EFFECT) — touch budget governance only applies to PROJECT. `.git/hooks/*` and the isolation branch are LOCAL-SIDE-EFFECT and not counted. In local-only mode all OUTPUT effectively becomes LOCAL-SIDE-EFFECT.
 - **Multi-stack first-class** (v2.4) — any per-stack behavior in SKILL.md must iterate `stacks[]`, namespace commands (`lint:ts` / `lint:py` / `lint` aggregate), and rely on `stacks.json` for hook dispatch. Do not regress to a single-stack assumption.
+- **Meta-rule 13 (v2.6 default local-only)** — default behavior reversed. Any new SKILL.md content describing OUTPUT must specify behavior under both modes; if you forget the local-only branch you've introduced a regression.
+- **Meta-rule 16 (v2.6 PR/MR never auto-execute)** — host adapter offers commands, never executes. Adding auto-execute would violate §5 hard AUTH on external state changes.
 
 When in doubt about whether a change requires bumping versions or only an edit, read the relevant Phase section of SKILL.md end-to-end — phases reference Iron Laws by number.
 
@@ -66,8 +75,9 @@ There is no build, lint, or test framework for this repo itself — it ships scr
 # Syntax-check every hook script (must pass with no output)
 bash -n hooks/*.sh
 
-# Validate settings template is well-formed JSON
+# Validate both settings templates are well-formed JSON
 jq empty < settings.template.json
+jq empty < settings.local.template.json
 
 # Make hooks executable (consumers do this; verify mode after edits)
 ls -l hooks/*.sh   # expect -rwxr-xr-x
@@ -79,5 +89,5 @@ When editing a hook script, also re-read SKILL.md's "示例脚本" section for t
 
 - **Language**: prose, comments, commit messages — match what's already there. Chinese is fine in spec prose and in commit/PR bodies; English-only for code identifiers, paths, hook JSON keys.
 - **Smallest-diff edits to SKILL.md** are preferred. The spec is the artifact; rewrites cost simulation cycles.
-- **Don't add a hook**, don't change the matcher set, and don't add a new env var without updating: (a) SKILL.md Phase 7, (b) `settings.template.json`, (c) the relevant `hooks/*.sh`, (d) README.md install/verify section, and (e) CHANGELOG.md. These five are tied together — partial edits cause silent drift in the installed Skill.
+- **Don't add a hook**, don't change the matcher set, and don't add a new env var without updating: (a) SKILL.md Phase 7, (b) `settings.template.json` AND `settings.local.template.json` (both must match the matcher/env set), (c) the relevant `hooks/*.sh`, (d) README.md install/verify section, and (e) CHANGELOG.md. These are tied together — partial edits cause silent drift in the installed Skill.
 - **`disable-model-invocation: true`** in SKILL.md frontmatter is intentional (prevents Claude from auto-running this side-effecting workflow). If removing it temporarily for testing, restore before committing.

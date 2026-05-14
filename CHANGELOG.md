@@ -4,7 +4,58 @@
 
 ---
 
-## v2.5 — 跨平台 + Doctor 模式（current）
+## v2.6 — Local-only 默认 + 多平台 git host 适配（current）
+
+**重大变更**：默认行为反转。v2.5 及之前默认入仓，v2.6 起默认 **local-only**（不入仓）。理由：现实里大多数公司只有少数人试用 AI 工具，"默认入仓"等于强加 AI 工具给同事——v2.6 反转这个假设。
+
+### Added
+
+- **`--local-only` 模式（默认）**：
+  - 知识文件写入 `CLAUDE.local.md`（Claude Code 原生 per-user 路径）
+  - 设置文件写入 `.claude/settings.local.json`（Claude Code 原生 per-user override）
+  - State / logs 写入 `.claude/local-only/` 命名空间
+  - 所有路径自动加入 `.git/info/exclude`，**零 .gitignore 改动**，团队 pull 后完全看不到 onboard 痕迹
+  - Hook 引用全局 skill 路径 `~/.claude/skills/onboard/hooks/...`，无项目内 skill 副本
+  - Forbidden zones 仅通过 hook env 强制，**不注入** PROJECT 的 lint ignore 文件
+- **`--share` 模式（opt-in）**：v2.5 及之前的入仓行为；现需显式声明
+- **Git host adapter 抽象**：统一支持 GitHub (`gh`) / GitLab (`glab`) / Gitea-Forgejo (`tea`) / Bitbucket / unknown
+  - Phase 0 自动探测 host + CLI 可用性
+  - `--share --isolate-branch` 模式 Phase 8 末尾按 host 调用对应 PR/MR 命令（只 offer 不自动执行）
+  - PR/MR body 从状态文件自动生成
+- **Git 拓扑 hard-block**：submodule / bare repo / detached HEAD 三种状态 Phase 0 立即 abort；shallow / worktree 仅 warn
+- **Team-signal 评分**（6 信号 / 阈值 ≥2 判 team）：CODEOWNERS、PR template、6 月内 committer ≥3、CI 分支保护规则、企业 remote URL、CONTRIBUTING.md
+- **分支前缀自动探测**：从 `git for-each-ref` 推断团队习惯前缀（chore / infra / feat / platform / tooling），fallback `chore`
+- **Doctor mode D8–D10**：模式一致性 + `.git/info/exclude` 完整性 + host adapter 就绪度
+- **元规则 13–16**（v2.6 新增 4 条）：默认 local-only / 拓扑 hard-block / 模式不可单方面切换 / PR-MR 决不自动执行
+- **`settings.local.template.json`**：新增 local-only 模式参考模板
+
+### Changed
+
+- **默认行为反转**：无 `--share` 参数 = local-only。需要团队共享必须显式 `--share`
+- **状态文件路径分流**：local-only → `.claude/local-only/onboarding-state.json`；share → `.claude/onboarding-state.json`
+- **Phase 0 增 4 个子步骤**：git 拓扑检测、team-signal 评分、host 探测、模式确认
+- **Phase 3 决策树拆 mode 分支**：local-only 写 `CLAUDE.local.md`，share 写 `CLAUDE.md`
+- **Phase 7 加 mode 维度**：local-only 模式 settings → `settings.local.json` + hook 引用全局路径
+- **Phase 8 完全重构**：local-only 不动 .gitignore，share 模式保留原 Case A/B
+- **状态文件 schema 升级到 v2.6**：新增 `mode` / `mode_migration` / `git_topology` / `team_signals` / `git_host` / `git_info_exclude_injected`
+- **阶段卡片契约**：新增 `mode` 字段
+- **Phase 0.5 Migration**：补 v2.5→v2.6 字段映射；v2.5 之前默认 share → 升级保留 share 模式
+
+### Fixed
+
+- 老 spec 默认入仓的设计盲点：未考虑大多数公司"个别人用 AI"的真实场景
+- 缺乏 GitLab / Gitea 等平台支持：v2.5 之前 PR 概念隐含 GitHub
+- 没有 git 拓扑检测：submodule / bare / detached HEAD 下跑会出诡异故障
+
+### Known limits
+
+- PR/MR 自动开 = offer + ASK，永不自动执行（设计选择，开 PR 是不可逆外部副作用）
+- Bitbucket 缺主流 CLI → fallback 到 web URL
+- Windows 原生仍不支持（用 WSL2）
+
+---
+
+## v2.5 — 跨平台 + Doctor 模式
 
 短期补丁版。解决 v2.4 ship 后暴露的几个真实痛点：macOS 无 `timeout` 命令、跑完 onboard 后没健康检查、与 `claudemd` 插件无明确分工、缺开源协议声明。
 

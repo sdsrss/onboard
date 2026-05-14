@@ -1,12 +1,12 @@
 ---
 name: onboard
 description: 旧项目接入 Claude Code 的标准化引导流程
-argument-hint: "[--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor]"
+argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.5)
+# /onboard — Legacy Project Onboarding Protocol (v2.6)
 
 参数：`$ARGUMENTS`
 
@@ -64,21 +64,24 @@ allowed-tools: Read, Glob, Grep
 
 ### 参数解析
 
+- `--local-only`（v2.6 新增，**默认模式**）：local 模式。所有 OUTPUT 文件走 Claude Code 原生 `.local.*` 约定 + `.git/info/exclude`，**完全不入仓**，团队成员 pull 后看不到任何 onboard 痕迹。详见下文「Mode model」章节。
+- `--share`（v2.6 新增，opt-in）：team-share 模式（v2.5 及之前的默认行为）。OUTPUT 文件入仓，通过 .gitignore 管控 RUNTIME。需要团队对 AI 工具有共识。
 - `--dry-run`：只输出"将要做什么"，不写 OUTPUT 文件。RUNTIME 正常创建/更新。
 - `--phase=<n>`：只跑指定阶段（0, 0.5, 1, 1.5, 2, 3-8）。
 - `--resume`：从上次中断处继续（同版本状态文件）。
 - `--update`（v2.4 新增）：升级已完成的旧版 onboarding 到当前 spec。触发 Phase 0.5 Migration，继承旧决策、只跑差异阶段。
 - `--strict`：任何验证失败立即中止整个流程。
-- `--isolate-branch`（v2.4 新增）：在专用 git 分支 `chore/onboarding-<timestamp>` 上执行写入阶段。失败/不满意切回原分支即可整体回滚。
+- `--isolate-branch`（v2.4 新增）：在专用 git 分支 `chore/onboarding-<timestamp>` 上执行写入阶段。失败/不满意切回原分支即可整体回滚。**仅在 `--share` 模式下有意义**；local-only 模式文件均不入仓，分支隔离无收益（Phase 0 检测到 `--local-only --isolate-branch` 组合会发出 warn，但不阻断）。
 - `--doctor`（v2.5 新增）：诊断模式。不跑任何 Phase，不写 PROJECT/OUTPUT，仅做健康检查 + RUNTIME log。详见下文「Doctor Mode」章节。
 
-`--resume`、`--update`、`--doctor` 三者互斥（同时指定两个 → Phase 0 立即 abort）。
+`--resume`、`--update`、`--doctor` 三者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。
 
 ### 阶段卡片输出契约
 
 ```
 ─── Phase <n> · <name> ───
 status:   done | skipped | failed | dry-run | blocked | deferred | verification_skipped | migrated
+mode:     local-only | share
 elapsed:  <耗时，例：1m23s>
 actions:  <逐条做了什么>
 outputs:  <OUTPUT 文件路径>
@@ -86,6 +89,99 @@ local_side_effects: <LOCAL-SIDE-EFFECT 路径>
 verify:   <验证命令及结果摘要>
 next:     <下一阶段或建议>
 ```
+
+---
+
+## Mode model（v2.6 核心新增）
+
+### 设计原则
+
+**默认 local-only**：大多数公司不全员支持 AI 工具，少数人试用。默认不入仓 = 不强加 AI 工具给同事 = 零团队污染风险。
+
+**显式 share**：用户明确知道团队接受 AI 工具，主动 `--share` 入仓共享。
+
+### 文件归宿表（v2.6 关键契约）
+
+| 文件 | `--local-only`（默认） | `--share` |
+|---|---|---|
+| 知识文件 | `CLAUDE.local.md`（Claude Code 原生 per-user 文件，业界约定不入仓） | `CLAUDE.md`（入仓） |
+| Claude Code 设置 | `.claude/settings.local.json`（Claude Code 原生 per-user override） | `.claude/settings.json`（入仓） |
+| Skill 包 | 复用 `~/.claude/skills/onboard/`（用户全局安装），不写项目内 | `.claude/skills/onboard/`（入仓） |
+| Hook 脚本（Command 形式） | `.claude/hooks/`，加入 `.git/info/exclude` | `.claude/hooks/`，入仓 |
+| State 文件 | `.claude/local-only/onboarding-state.json` | `.claude/onboarding-state.json` |
+| 运行日志 | `.claude/local-only/onboarding-logs/` | `.claude/onboarding-logs/` |
+| Forbidden zones 注入到 lint ignore（.eslintignore 等） | **跳过**（不动 PROJECT 文件） | 注入（PROJECT 改动需 AUTH） |
+| `.gitignore` 改动 | **不改**（零团队污染） | 修订（按 Case A/B） |
+| `.git/info/exclude` 注入 | 注入所有 OUTPUT + RUNTIME 路径 | 仅注入 RUNTIME 路径 |
+| `.git/hooks/*` 安装 | 默认 yes（per-clone，本就不入仓） | 按 Phase 6 决策 |
+
+### 模式不变量
+
+- **local-only 永远不修改 PROJECT 文件**——onboard 只在 `.claude/local-only/` 和 `.git/info/exclude` 写入；唯一例外是 `CLAUDE.local.md` 写到项目根（Claude Code 自动 load 它需要这个位置，但 git 默认 ignore `*.local.*`）
+- **local-only 不改 .gitignore**——任何修改都可能成为 PR 噪音
+- **share 模式必须显式**——用户 `--share` 即视为知情同意 AI 工具入仓
+- **混合升级**：local-only 已 onboard 的项目可 `--update --share` 升级为团队共享（state file 标 `mode_migration: local-only→share`，需 hard AUTH）
+
+### Local-only 模式下 Iron Laws 的特别要求
+
+- **Iron Law 8（No business logic changes）**：local-only 模式扩展为"不修改任何 PROJECT 文件，包括 .gitignore"
+- **Iron Law 13（Touch budget）**：local-only 模式的 `touch_budget` 限定为 `CLAUDE.local.md` 单文件 + `.git/info/exclude` 追加（LOCAL-SIDE-EFFECT，不计入预算）
+- **Iron Law 16（Forbidden zones global）**：local-only 模式下 forbidden zones 仅通过 hook env `ONBOARD_FORBIDDEN_PATHS` 强制，**不同步**到项目的 .eslintignore / .prettierignore 等（避免 PROJECT 文件修改）
+
+---
+
+## Git host adapter（v2.6 新增）
+
+支持多 git 托管平台的统一抽象。Phase 0 探测，Phase 8 调用。
+
+### 支持平台
+
+| Host | 远程 URL 信号 | CLI | PR/MR 命令 | 模板路径 |
+|---|---|---|---|---|
+| GitHub | `github.com` / `*.github.com` / `*.github.*` (Enterprise) | `gh` | `gh pr create --base <X> --title <Y> --body <Z>` | `.github/PULL_REQUEST_TEMPLATE.md` / `.github/pull_request_template.md` |
+| GitLab | `gitlab.com` / `gitlab.*` (self-hosted) | `glab` | `glab mr create --target-branch <X> --title <Y> --description <Z>` | `.gitlab/merge_request_templates/*.md` |
+| Gitea / Forgejo | `gitea.*` / `codeberg.org` / `forgejo.*` | `tea` | `tea pulls create --base <X> --title <Y> --description <Z>` | `.gitea/PULL_REQUEST_TEMPLATE.md` |
+| Bitbucket | `bitbucket.org` / `bitbucket.*` | none mainstream | fallback URL | none |
+| 未识别 | other | none | fallback URL | none |
+
+### Adapter 接口（实现层 contract）
+
+每个 adapter 必须提供：
+
+```
+detect()         → bool                            是否检测到此 host
+cli_available()  → bool                            对应 CLI 是否安装
+template_path()  → string | null                   PR/MR 模板文件路径
+create_pr(base, title, body) → command_string      构造 PR/MR 命令
+web_url_hint(branch) → string                      未装 CLI 时的"手动开 PR"网址
+```
+
+Phase 0 探测得出 `git_host` 字段写入状态文件：
+
+```yaml
+git_host:
+  platform: github | gitlab | gitea | bitbucket | unknown
+  remote_url: <git remote get-url origin 输出>
+  cli_command: gh | glab | tea | null
+  cli_available: true | false
+  template_path: <文件路径或 null>
+  enterprise: true | false   # 自托管标志（gitlab.example.com 等）
+```
+
+### Fallback 策略
+
+| 情况 | 行为 |
+|---|---|
+| Host 识别成功 + CLI 可用 | Phase 8 末尾 offer `<cli> pr/mr create ...` |
+| Host 识别成功 + CLI 缺失 | Phase 8 末尾给出 web URL 让用户手动开 PR/MR，附自动生成的 title + body 文本 |
+| Host 不识别（unknown / 未推送的本地 repo） | Phase 8 静默跳过 PR offer，仅提示"推送后手动开 PR/MR" |
+| Multiple remotes | 优先 `origin`，多 remote 时提示用户选 |
+
+### Local-only 模式下的 adapter 行为
+
+local-only 模式 Phase 8 **不 offer 任何 PR/MR**——文件根本没入仓，没有可推送的 commit。但 adapter 仍然探测并记录，用于：
+- `--update --share` 模式升级时直接复用 adapter 决策
+- Doctor mode D8 检查"如未来切到 share，host 工具链是否就绪"
 
 ---
 
@@ -102,19 +198,84 @@ next:     <下一阶段或建议>
 ### 动作
 
 1. `git rev-parse --show-toplevel` 等于当前目录。
-2. PROJECT 工作区状态：过滤 RUNTIME 路径后 `git status --porcelain` 为空，否则等待 `continue dirty`。
-3. 按表检查工具可用性。
-4. 读取状态文件 → 加载历史。**检测 `version` 字段**：
+2. **Git 拓扑检测（v2.6 新增，hard-block 集）**：
+   ```bash
+   git rev-parse --show-superproject-working-tree   # 非空 → 在 submodule 里
+   git rev-parse --is-bare-repository                # true → bare repo
+   git symbolic-ref -q HEAD                          # 失败 → detached HEAD
+   git rev-parse --is-shallow-repository             # true → shallow clone (warn-only)
+   test "$(git rev-parse --git-common-dir)" = "$(git rev-parse --git-dir)" # false → worktree (warn-only)
+   ```
+   | 拓扑状态 | 行为 |
+   |---|---|
+   | submodule | **hard-block**：拒绝运行，提示进入 superproject 跑 |
+   | bare repo | **hard-block**：bare repo 没 working tree |
+   | detached HEAD | **hard-block**：无法安全建分支 |
+   | shallow clone | **warn**：committer 统计可能不准，team signal 评分会偏低；可继续 |
+   | worktree | **warn**：`.git/info/exclude` 是 per-worktree，跨 worktree 不共享；可继续 |
+
+3. PROJECT 工作区状态：过滤 RUNTIME 路径后 `git status --porcelain` 为空，否则等待 `continue dirty`。
+4. 按表检查工具可用性。
+
+5. **Team-signal 评分（v2.6 新增）**：扫描以下 6 个信号，每个 1 分：
+
+   ```yaml
+   signals:
+     codeowners:        path 存在 (.github/CODEOWNERS 或 CODEOWNERS 或 docs/CODEOWNERS)
+     pr_template:       .github/PULL_REQUEST_TEMPLATE* / .github/pull_request_template* / .gitlab/merge_request_templates/*
+     committers_3plus:  git shortlog -sn --since="6 months ago" --no-merges 行数 ≥ 3
+     ci_branch_protect: .github/workflows/*.yml 含 required_status_checks 字符串 或 .gitlab-ci.yml 含 rules:.*protected_branches
+     enterprise_remote: origin URL 含已知企业域名（非 github.com / gitlab.com / bitbucket.org）
+     contributing_doc:  CONTRIBUTING.md 或 .github/CONTRIBUTING.md 提到 "review" / "approval"
+   ```
+
+   评分阈值：
+   - **score ≥ 2 → team**（强烈推荐 `--share + --isolate-branch`；默认仍 `--local-only` 但提示）
+   - **score = 0 → solo**（默认 `--local-only` 即可，可考虑 `--share` 直跑 main）
+   - **score = 1 → ambiguous**（ASK 用户）
+
+6. **Git host adapter 探测（v2.6 新增）**：见上文「Git host adapter」章节。结果写入 `git_host` 字段。
+
+7. 读取状态文件 → 加载历史。**检测 `version` 字段**：
    - 与当前 spec 版本相同 → 走 `--resume` 流程
    - 不同且用户指定 `--update` → 进入 Phase 0.5 Migration
    - 不同但用户未指定 `--update` → 标 `blocked`，提示用户加 `--update` 或手动删除旧状态文件
-5. 创建 RUNTIME 目录；追加到 `.git/info/exclude`（LOCAL-SIDE-EFFECT）。
-6. **若指定 `--isolate-branch`**：
-   ```bash
-   BRANCH="chore/onboarding-$(date +%Y%m%d-%H%M%S)"
-   git checkout -b "$BRANCH"
-   ```
-   分支名记入状态文件 `params.isolation_branch`，最终报告告知用户回滚方式。
+
+8. **模式确认（v2.6 新增）**：
+   - 默认 `--local-only`，仅 Phase 0 卡片显示当前模式
+   - score = 1 且未显式指定 mode → ASK：
+     ```
+     检测到 1 个团队信号（CODEOWNERS）。
+     推荐:
+       [L] --local-only （默认，零团队污染）
+       [S] --share --isolate-branch （团队共享 + PR review）
+     ```
+   - 显式 `--share` 时输出"将修改 PROJECT 文件 + 入仓"警示
+
+9. 创建 RUNTIME 目录（local-only 模式：`.claude/local-only/`；share 模式：`.claude/`）；追加到 `.git/info/exclude`（LOCAL-SIDE-EFFECT）。
+
+10. **若指定 `--isolate-branch`** （仅 `--share` 模式有意义）：
+    ```bash
+    PREFIX=$(detect_branch_prefix)   # 从 git for-each-ref 推断（chore/infra/feat/...）
+    BRANCH="${PREFIX}/onboarding-$(date +%Y%m%d-%H%M%S)"
+    git checkout -b "$BRANCH"
+    ```
+    分支名记入状态文件 `params.isolation_branch`，最终报告告知用户回滚方式 + 自动开 PR/MR offer。
+
+### 分支前缀探测（v2.6 新增）
+
+```bash
+detect_branch_prefix() {
+  # 统计 origin 远程分支前缀出现次数
+  git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+    | grep -v '^origin/HEAD' \
+    | cut -d'/' -f2 \
+    | sort | uniq -c | sort -rn \
+    | awk '$1 >= 2 {print $2; exit}'   # 至少出现 2 次的最常见前缀
+}
+```
+
+零信号 → fallback `chore`。
 
 ### 输出预估（v2.4 新增）
 
@@ -129,10 +290,35 @@ Phase 0 卡片新增"预估总耗时"：
 ### 验证
 
 - 当前目录 == git 根目录
+- Git 拓扑无 hard-block 状态（v2.6）
 - PROJECT 工作区干净（或 `continue dirty`）
 - 工具按需就位
+- Team-signal 评分已记录 + 模式已确认（v2.6）
+- Git host adapter 已探测（v2.6）
 - 本地 ignore 配置完毕
 - 状态文件版本已判定后续路径（resume / update / fresh）
+
+### Phase 0 卡片样例（v2.6）
+
+```
+─── Phase 0 · Preflight ───
+status:       done
+mode:         local-only (default)
+elapsed:      3s
+git topology: healthy (single-repo, branch=main, clean)
+team signals: 1/6  (CODEOWNERS missing, PR template missing, 1 committer in 6mo)
+              → classified as SOLO
+git host:     github.com (gh CLI v2.x available)
+size:         small (estimated 5-10 min)
+actions:
+  - Created .claude/local-only/onboarding-state.json
+  - Appended .git/info/exclude (4 entries)
+outputs:      [none — local-only mode writes no PROJECT files]
+local_side_effects:
+  - .claude/local-only/  (created)
+  - .git/info/exclude  (appended)
+next:         Phase 1 (Discovery)
+```
 
 ---
 
@@ -151,7 +337,10 @@ Phase 0 卡片新增"预估总耗时"：
    | v1 / v2.0 | `stack.size` | 重新评级 |
    | v1 / v2.0 / v2.1 | `phase_1_5` 整体 | 从历史决策推断；缺失项进 Phase 1.5 重新决策 |
    | v2.2 及更新 | `local_side_effects`、`mutex_resolutions` | 从 `phases.6/7` 推断 |
+   | v2.5 及之前 | `mode`、`git_topology`、`team_signals`、`git_host`、`mode_migration`、`git_info_exclude_injected` | v2.5 及之前都是 share 行为 → `mode: "share"`、`mode_migration: null`；其余字段重跑 Phase 0 探测填充 |
    | 任何版本 | `entry_point` | 检测当前发布路径（Skill or Command） |
+
+**v2.5→v2.6 升级特殊处理**：v2.5 项目原本就是 share 行为，升级后 `mode: "share"`；用户若想改回 local-only 必须显式跑 `/onboard --update --local-only`，此时 Phase 0.5 标 `mode_migration: "share→local-only"` + Phase 8 输出"清理 .gitignore 中 onboard 条目 / 取消 git tracking 的 CLAUDE.md / settings.json"步骤（涉及 PROJECT 改动 → hard AUTH）。
 
 3. 写入新状态文件，`version` 升级到当前 spec 版本，`migrated_from: <old>` 记入元数据。
 4. **决策继承策略**：
@@ -435,8 +624,18 @@ abort
 
 ### 决策树
 
-- 已有 CLAUDE.md → 修订模式，diff 给用户看后合并，不替换；按 `claudemd_coexistence` 分工只动 onboard 拥有的节
-- 无 CLAUDE.md → 优先调用 `/init`，否则按模板生成
+**`--share` 模式（v2.5 及之前的默认行为）**：
+- 已有 `CLAUDE.md` → 修订模式，diff 给用户看后合并，不替换；按 `claudemd_coexistence` 分工只动 onboard 拥有的节
+- 无 `CLAUDE.md` → 优先调用 `/init`，否则按模板生成
+- 目标文件：项目根 `CLAUDE.md`（入仓）
+
+**`--local-only` 模式（v2.6 默认）**：
+- 写入目标改为 `CLAUDE.local.md`（项目根，Claude Code 自动 load，业界约定 git 不入仓）
+- 已有 `CLAUDE.md` 且 onboard 跑在 local-only：**不动 `CLAUDE.md`**，把 onboard 新增内容写到 `CLAUDE.local.md`（Claude Code 同时 load 两者）
+- 已有 `CLAUDE.local.md` → 修订模式（同 share 模式对 CLAUDE.md 的处理）
+- 无任一 → 直接生成 `CLAUDE.local.md`
+- `claudemd` 插件共存探测仍生效，但分工记录在 `phases.3.claudemd_coexistence` 仍引用 onboard 拥有的节（节归属与模式无关）
+- `CLAUDE.local.md` 自动加入 `.git/info/exclude`，**不动 .gitignore**
 
 ### 多栈变体（v2.4 新增）
 
@@ -685,16 +884,31 @@ CI 修改只验证 yaml 合法性 + 命令字符串变更；实际 CI 跑通需 
 
 ## Phase 7 · Claude Code Hooks
 
-### 发布路径决策（v2.4 新增）
+### 发布路径决策（v2.4 新增）+ 模式决策（v2.6 新增）
 
-Phase 7 行为依发布路径不同：
+Phase 7 行为同时依两个维度决定：
+
+#### 维度 1：skill vs command 形式
 
 | 形式 | hook 脚本来源 | Phase 7 动作 |
 |---|---|---|
-| **Skill** (`.claude/skills/onboard/`) | supporting files：`.claude/skills/onboard/hooks/*.sh` | 写 `.claude/settings.json` 直接引用 `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/<name>.sh`；**不复制**脚本 |
-| **Command** (`.claude/commands/onboard.md`) | 命令运行时动态生成 | 写 `.claude/hooks/*.sh` + 写 settings.json 引用 `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` |
+| **Skill** (`.claude/skills/onboard/` 或 `~/.claude/skills/onboard/`) | supporting files：`hooks/*.sh` | 仅写 settings 文件，引用 hook 路径；**不复制**脚本 |
+| **Command** (`.claude/commands/onboard.md`) | 命令运行时动态生成 | 写 `.claude/hooks/*.sh` + 写 settings 文件引用 |
 
 Skill 形式优势：脚本团队 review 一次复用到所有项目；升级 spec 时只升级 skill 包，不必每个项目重跑 Phase 7。
+
+#### 维度 2：local-only vs share 模式（v2.6 新增）
+
+| 模式 | settings 文件 | hook 路径引用 | .gitignore 改动 | .git/info/exclude 改动 |
+|---|---|---|---|---|
+| `--local-only`（默认） | `.claude/settings.local.json` | Skill：`~/.claude/skills/onboard/hooks/<name>.sh`（用户全局安装路径）<br>Command：`${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` + 加入 `.git/info/exclude` | **不动** | 注入所有 hook 输出路径 + RUNTIME 路径 |
+| `--share` | `.claude/settings.json` | Skill：`${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks/<name>.sh`（项目内 skill 路径）<br>Command：`${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` | 修订（Case A/B） | 仅注入 RUNTIME 路径 |
+
+**关键细节**：
+- local-only + Skill 形式 → hook 引用**全局安装路径**（`~/.claude/skills/onboard/hooks/...`），无项目内 skill 副本，零 PROJECT 改动
+- local-only + Command 形式 → hook 脚本写到 `.claude/hooks/*.sh` 但通过 `.git/info/exclude` 隐藏
+- local-only 模式 **强烈推荐使用 Skill 形式**（git 状态最干净；Command 形式要求 `.claude/hooks/` 目录可写，且 status 噪音多）
+- `.claude/settings.local.json` 是 Claude Code 原生 per-user 配置文件，约定不入仓——业界标准做法
 
 ### Hook 深度合并策略（v2.4 关键规则，处理第三方 hook 共存）
 
@@ -1049,9 +1263,30 @@ exit 0
 
 ## Phase 8 · .gitignore & Final Verification
 
-### .gitignore 治理
+### 模式分支（v2.6 关键改动）
 
-检测 `.claude/` 是否被父规则 ignore：
+Phase 8 行为完全依模式分流：
+
+#### `--local-only` 模式（默认）
+
+**不修改 .gitignore**，**不修改任何 PROJECT 文件**。所有隐藏走 `.git/info/exclude`（per-clone，团队不可见）：
+
+```
+# .git/info/exclude appended by /onboard v2.6 (local-only mode)
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/local-only/
+.claude/hooks/                  # Command 形式时 hook 输出
+.claude/onboarding-state.json   # 兼容老版本残留
+.claude/onboarding-logs/
+.claude/tmp/
+```
+
+**写入前**：`grep -F` 检查避免重复；写入后 `git status` 应显示 0 个 untracked 文件（除非用户已有自己的 untracked 文件）——这是 local-only 的核心契约。
+
+#### `--share` 模式（opt-in）
+
+检测 `.claude/` 是否被父规则 ignore，按 Case A/B 修订 `.gitignore`：
 
 ```bash
 git check-ignore -v .claude/ 2>/dev/null && echo "ignored" || echo "not_ignored"
@@ -1066,6 +1301,7 @@ git check-ignore -v .claude/ 2>/dev/null && echo "ignored" || echo "not_ignored"
 .claude/onboarding-state.v*.json.bak
 .claude/onboarding-logs/
 .claude/tmp/
+.claude/local-only/
 CLAUDE.local.md
 ```
 
@@ -1088,50 +1324,110 @@ CLAUDE.local.md
 .claude/onboarding-state.v*.json.bak
 .claude/onboarding-logs/
 .claude/tmp/
+.claude/local-only/
 CLAUDE.local.md
 ```
 
-第三步补全通用必加项（缺失时）：`.env*`、IDE、OS、构建产物、覆盖率。每项写入前 `grep -F` 检查避免重复。
+补全通用必加项（缺失时）：`.env*`、IDE、OS、构建产物、覆盖率。每项写入前 `grep -F` 检查避免重复。
 
-### 入仓共享验证（动态）
+### PR/MR 自动开启（v2.6 新增，仅 `--share --isolate-branch` 模式）
 
-执行 `git ls-files .claude/` 列出当前入仓文件，**动态填入**最终报告。
+Phase 8 末尾按 `git_host.platform` 调用对应 adapter：
+
+```bash
+# GitHub
+gh pr create \
+  --base "$ORIGINAL_BRANCH" \
+  --title "chore: onboard Claude Code dev environment (v2.6)" \
+  --body "$(cat .claude/onboarding-logs/pr-body.md)" \
+  --draft
+
+# GitLab
+glab mr create \
+  --target-branch "$ORIGINAL_BRANCH" \
+  --title "chore: onboard Claude Code dev environment (v2.6)" \
+  --description "$(cat .claude/onboarding-logs/pr-body.md)" \
+  --draft
+
+# Gitea
+tea pulls create \
+  --base "$ORIGINAL_BRANCH" \
+  --title "chore: onboard Claude Code dev environment (v2.6)" \
+  --description "$(cat .claude/onboarding-logs/pr-body.md)"
+```
+
+**Adapter 行为**：
+- CLI 可用 → offer 命令字符串 + ASK 用户确认（never auto-execute——开 PR 是 §5 hard AUTH）
+- CLI 缺失但 host 已识别 → 输出 web URL：`https://<host>/<owner>/<repo>/compare/<base>...<branch>`
+- Host 未识别 → 仅提示 push + 手动开 PR
+
+**PR body 自动生成**：从状态文件提取 mode / mutex_resolutions / stacks / forbidden_zones / installed deps / deferred items 汇总为 markdown，写入 `.claude/onboarding-logs/pr-body.md`，用户可在 push 前手动编辑。
+
+### 入仓共享验证（动态，仅 `--share` 模式）
+
+`--share` 模式：执行 `git ls-files .claude/` 列出当前入仓文件，**动态填入**最终报告。
+`--local-only` 模式：执行 `git ls-files .claude/`，**断言输出为空**（除非用户原本就有入仓的 .claude/ 文件，那些不归 onboard 管）；非空则在最终报告里列出 onboard 不会动的现有入仓文件。
 
 ### 最终验证清单
 
+通用项（两模式都查）：
+
 ```
-[ ] PROJECT 工作区只有 touch_budget 范围内的改动
-[ ] CLAUDE.md 含 Stack(s) / Commands / Layout / Change Policy / Testing / Forbidden
+[ ] CLAUDE.md / CLAUDE.local.md 含 Stack(s) / Commands / Layout / Change Policy / Testing / Forbidden
 [ ] 多栈项目按栈分别验证标准化脚本
 [ ] Phase 4 类 A 检查前后对比通过（按栈）
 [ ] Phase 4 类 B 新增检查首次失败已记入 deferred（按栈）
 [ ] pre-commit hook 能拦截 lint 错误（或标 verification_skipped）
 [ ] pre-push hook 中 deferred 检查为 warn-only 且 exit 0
-[ ] CI 配置已对齐（按 job × stack）
-[ ] .claude/hooks/*.sh 自动验证全通过
+[ ] .claude/hooks/*.sh（或 skill supporting）自动验证全通过
 [ ] 第三方 hook 共存验证通过（若适用）
-[ ] .gitignore 包含 Claude Code 条目
-[ ] git ls-files .claude/ 列表已附最终报告
 [ ] Mutex group 无冲突
 [ ] local_side_effects 已独立记录
 [ ] `--update` 模式下 migrated_from / 继承决策 / 差异 Phase 已记录
-[ ] `--isolate-branch` 模式下分支名已告知用户
+[ ] `--isolate-branch` 模式下分支名已告知用户（仅 share 模式有意义）
 [ ] 状态文件字段完整
 ```
 
-### 最终输出
+`--local-only` 模式专属（v2.6）：
+
+```
+[ ] PROJECT 工作区 0 改动（git diff --quiet HEAD 通过）
+[ ] git ls-files .claude/ + CLAUDE.local.md 输出为空 / 与 onboard 运行前一致
+[ ] .git/info/exclude 已注入所有 onboard 写入路径
+[ ] settings 文件为 .claude/settings.local.json 而非 .claude/settings.json
+[ ] 知识文件为 CLAUDE.local.md 而非 CLAUDE.md
+[ ] CI 配置未被修改（local-only 模式不动 CI）
+[ ] forbidden zone 未注入到项目 lint ignore（仅通过 hook env 强制）
+```
+
+`--share` 模式专属：
+
+```
+[ ] PROJECT 工作区只有 touch_budget 范围内的改动
+[ ] CI 配置已对齐（按 job × stack）
+[ ] .gitignore 包含 Claude Code 条目
+[ ] git ls-files .claude/ 列表已附最终报告
+[ ] PR/MR 命令已 offer（若 --isolate-branch + host CLI 可用）
+```
+
+### 最终输出（v2.6 加 mode 节）
 
 ```markdown
 # Onboarding Complete
+
+## Mode
+- **<local-only | share>** （v2.6）
+- <local-only 时：本次 onboarding 对团队完全不可见；CLAUDE.local.md + .claude/settings.local.json 仅在本机生效>
+- <share 时：OUTPUT 文件已入仓，团队 pull 后即可用>
 
 ## What was added (OUTPUT)
 - <…>
 
 ## What was modified (PROJECT, authorized)
-- <…>
+- <local-only 模式下此节应为空；非空 → bug>
 
 ## What was applied as local-side-effects (not committed)
-- <例：.git/hooks/pre-commit, .git/info/exclude>
+- <例：.git/info/exclude（追加 N 行）, .git/hooks/pre-commit>
 
 ## What was inherited from v<old> (--update mode)
 - <继承自旧版的决策与产物>
@@ -1147,7 +1443,7 @@ CLAUDE.local.md
 - 提交前自动跑：lint:fix + format（staged，含 re-stage）
 - 推送前自动跑：typecheck (warn-only) + test
 - Claude 完工前自动跑：按 ONBOARD_STOP_MODE 模式
-- Change Policy：见 CLAUDE.md
+- Change Policy：见 <CLAUDE.md | CLAUDE.local.md>
 
 ## Forbidden zones (confirmed)
 - <…>
@@ -1159,57 +1455,75 @@ CLAUDE.local.md
 
 ## Team share verification (dynamic)
 - `git ls-files .claude/`:
-  <实际入仓文件>
-- 入口：<.claude/skills/onboard/SKILL.md 或 .claude/commands/onboard.md>
-- 提醒：不要同时维护 skill 与 command 两份副本
+  <local-only 应为空；share 模式列出入仓文件>
+- 入口：<.claude/skills/onboard/SKILL.md | ~/.claude/skills/onboard/SKILL.md | .claude/commands/onboard.md>
 
-## Rollback (--isolate-branch mode only)
-- 分支名：<chore/onboarding-...>
+## Git host integration (v2.6)
+- platform: <github | gitlab | gitea | bitbucket | unknown>
+- CLI available: <gh | glab | tea | none>
+- PR/MR command (offered, not auto-executed):
+  ```
+  <gh pr create ... | glab mr create ... | manual web URL>
+  ```
+
+## Rollback (--isolate-branch mode only, share only)
+- 分支名：<prefix>/onboarding-<ts>
 - 整体回滚：`git checkout <original-branch> && git branch -D <isolation-branch>`
-- 接受变更：`git checkout <original-branch> && git merge <isolation-branch>`
+- 接受变更：`git checkout <original-branch> && git merge <isolation-branch>` 或开 PR/MR
+
+## Local-only cleanup (if user later wants to remove onboard traces)
+- `rm CLAUDE.local.md .claude/settings.local.json`
+- `rm -rf .claude/local-only/`
+- 从 `.git/info/exclude` 删除 onboard 注入的行（开头有 `# /onboard v2.6` 注释）
 
 ## Recommended next steps
 1. `/hooks` 验证 hook 加载
 2. 试编辑 confirmed forbidden zone → 期望 guard-edit 拦截
 3. 试写一个 lint 错误 → 期望 Stop hook 按 mode 拦截
 4. 修复 deferred 项（另起 PR；清零后改 pre-push 为 fail-on-error）
-5. 第一次 push 后观察 CI 实际行为
-6. Review CLAUDE.md，删除不符合实际的条目
+5. （仅 share）第一次 push 后观察 CI 实际行为
+6. Review CLAUDE.md / CLAUDE.local.md，删除不符合实际的条目
+7. （local-only → share 升级）日后想团队共享时跑 `/onboard --update --share`
 ```
 
 ---
 
-## Doctor Mode（v2.5 新增）
+## Doctor Mode（v2.5 新增，v2.6 扩展）
 
 **触发**：`/onboard --doctor`。**不跑任何 Phase**，不写 PROJECT / OUTPUT，仅做诊断 + 追加 RUNTIME log。
 
-**前置**：当前目录是 git 仓库 + 已存在 `.claude/onboarding-state.json`（未 onboard 过的项目 doctor 直接返回 `not_onboarded` 提示用户跑 `/onboard`）。
+**前置**：当前目录是 git 仓库 + 已存在 onboarding 状态文件（local-only: `.claude/local-only/onboarding-state.json`；share: `.claude/onboarding-state.json`）。两个路径都不存在 → 返回 `not_onboarded` 提示用户跑 `/onboard`。
 
 ### 检查项
 
-| ID | 检查 | 失败定义 | 失败级别 |
-|---|---|---|---|
-| D1 | state file schema 合法 | `version` 字段缺失或非已知值 / 关键字段（stacks/confirmed_forbidden_zones/phases）结构错 | broken |
-| D2 | `stacks[]` 与当前目录一致 | 探测 Phase 1 信号，与 stacks.json 比对；新增 / 消失的栈 | drifted |
-| D3 | `confirmed_forbidden_zones` 路径仍存在 | 路径已被删 / 重命名 | drifted |
-| D4 | `.claude/settings.json` 仍引用四个 onboard hook | 引用缺失 / 路径不指向实际脚本 | broken |
-| D5 | `bash -n` 通过 4 个 hook 脚本 | 语法错误 | broken |
-| D6 | `jq empty < .claude/settings.json` 通过 | JSON 非法 | broken |
-| D7 | 4 个 hook 脚本可执行（mode 含 `x`） | 缺执行位 | drifted |
+| ID | 检查 | 失败定义 | 失败级别 | 模式相关 |
+|---|---|---|---|---|
+| D1 | state file schema 合法 | `version` 字段缺失或非已知值 / 关键字段（stacks/confirmed_forbidden_zones/phases）结构错 | broken | both |
+| D2 | `stacks[]` 与当前目录一致 | 探测 Phase 1 信号，与 stacks.json 比对；新增 / 消失的栈 | drifted | both |
+| D3 | `confirmed_forbidden_zones` 路径仍存在 | 路径已被删 / 重命名 | drifted | both |
+| D4 | settings 文件仍引用四个 onboard hook | 引用缺失 / 路径不指向实际脚本 | broken | both |
+| D5 | `bash -n` 通过 4 个 hook 脚本 | 语法错误 | broken | both |
+| D6 | `jq empty < <settings>` 通过 | JSON 非法 | broken | both |
+| D7 | 4 个 hook 脚本可执行（mode 含 `x`） | 缺执行位 | drifted | both |
+| **D8** | **模式一致性（v2.6 新增）**：state file `mode` 字段与实际文件分布吻合 | local-only 模式但发现 `CLAUDE.md` 或 `.claude/settings.json` 被 onboard 写入 / share 模式但缺 `.claude/settings.json` | drifted | both |
+| **D9** | **`.git/info/exclude` 完整性（v2.6 新增，local-only）**：onboard 写入的所有路径都已在 exclude 中 | 缺路径 → 团队可能误见 onboard 文件 | broken | local-only |
+| **D10** | **Git host adapter 就绪度（v2.6 新增）**：检测 host CLI 是否仍可用 | gh/glab/tea 之前可用，现在不可用 | drifted | both |
 
 ### 三态健康度
 
-- **healthy**：D1–D7 全过
-- **drifted**：仅 drifted 级失败（D2/D3/D7）→ 建议 `/onboard --update` 或针对性手动修复
-- **broken**：任一 broken 级失败（D1/D4/D5/D6）→ 必须人工介入或重新 onboard
+- **healthy**：D1–D10 全过
+- **drifted**：仅 drifted 级失败（D2/D3/D7/D8/D10）→ 建议 `/onboard --update` 或针对性手动修复
+- **broken**：任一 broken 级失败（D1/D4/D5/D6/D9）→ 必须人工介入或重新 onboard
 
 ### 输出格式
 
 ```
 ─── Doctor Report ───
 state:        healthy | drifted | broken
+mode:         local-only | share
 checked_at:   <ISO timestamp>
-spec_version: <state.version> (current: 2.5)
+spec_version: <state.version> (current: 2.6)
+git host:     github.com (gh CLI v2.x available)
 
 D1 schema:                ✓ ok
 D2 stacks consistency:    ✗ drifted — new dir `ml/` looks like a Python stack not in stacks.json
@@ -1218,10 +1532,13 @@ D4 hook references:       ✓ ok
 D5 hook syntax:           ✓ ok
 D6 settings.json valid:   ✓ ok
 D7 hook executable:       ✗ drifted — guard-edit.sh missing +x
+D8 mode consistency:      ✓ ok
+D9 git/info/exclude (local-only): ✓ ok (7 entries match)
+D10 host adapter:         ✓ ok (gh)
 
 Suggested actions:
   D2 → run `/onboard --update` to re-detect stacks
-  D7 → chmod +x .claude/skills/onboard/hooks/guard-edit.sh
+  D7 → chmod +x ~/.claude/skills/onboard/hooks/guard-edit.sh
 ```
 
 ### Iron Law 边界
@@ -1269,20 +1586,50 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 状态文件结构（`.claude/onboarding-state.json`，v2.4 schema）
+## 状态文件结构（v2.6 schema）
+
+**路径**：
+- `--local-only` 模式（默认）：`.claude/local-only/onboarding-state.json`
+- `--share` 模式：`.claude/onboarding-state.json`
 
 ```json
 {
-  "version": "2.4",
-  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | null",
+  "version": "2.6",
+  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | null",
+  "mode": "local-only | share",
+  "mode_migration": "local-only→share | share→local-only | null",
   "started_at": "...",
   "last_updated": "...",
   "params": {
     "dry_run": false,
     "strict": false,
     "update": false,
-    "isolation_branch": "chore/onboarding-... | null",
+    "local_only": true,
+    "share": false,
+    "isolation_branch": "<prefix>/onboarding-... | null",
     "update_phases": []
+  },
+  "git_topology": {
+    "is_submodule": false,
+    "is_bare": false,
+    "is_detached": false,
+    "is_shallow": false,
+    "is_worktree": false,
+    "branch_prefix_detected": "chore | infra | feat | ..."
+  },
+  "team_signals": {
+    "score": 0,
+    "classification": "solo | team | ambiguous",
+    "signals_hit": ["codeowners", "pr_template", ...],
+    "shortlog_committers_6mo": 1
+  },
+  "git_host": {
+    "platform": "github | gitlab | gitea | bitbucket | unknown",
+    "remote_url": "...",
+    "cli_command": "gh | glab | tea | null",
+    "cli_available": true,
+    "template_path": "...",
+    "enterprise": false
   },
   "stacks": [
     {
@@ -1300,19 +1647,21 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
   "confirmed_forbidden_zones": [],
   "touch_budget": [],
   "local_side_effects": [],
+  "git_info_exclude_injected": [],
   "phases": {
-    "0":   { "status": "done", "elapsed": "..." },
+    "0":   { "status": "done", "elapsed": "...", "mode_confirmed_by": "default | flag | ask" },
     "0_5": { "status": "done | not_triggered", "schema_diff": [], "inherited_decisions": [] },
     "1":   { "status": "done", "discovery_report": "<markdown>", "lockfile_conflicts": [], "ci_commands_extracted": [], "stale_task_runner_targets": [] },
     "1_5": { "status": "done", "decisions": {} },
     "2":   { "status": "done", "plan": [], "approved_items": [], "approved_installs": [], "approved_risks": [], "skipped": [], "mutex_resolutions": {} },
-    "3":   { "status": "done", "outputs": ["CLAUDE.md"], "change_policy_set": true, "testing_level": "unit + integration", "stacks_section_format": "single | multi" },
+    "3":   { "status": "done", "outputs": ["CLAUDE.md | CLAUDE.local.md"], "change_policy_set": true, "testing_level": "unit + integration", "stacks_section_format": "single | multi", "claudemd_coexistence": {} },
     "4":   { "status": "done", "outputs": [], "installed": [], "task_runner_health": {}, "checks_by_stack": {} },
     "5":   { "status": "skipped | done | deferred | placeholder", "testing_level_recorded": "unit" },
     "6":   { "status": "done | verification_skipped", "choice": "...", "auto_fix_restage_strategy": "...", "ci_realigned": true, "warn_only_checks": [], "outputs": [] },
     "7":   {
       "status": "done",
       "publish_path": "skill | command",
+      "settings_file": ".claude/settings.json | .claude/settings.local.json",
       "stop_mode": "light | standard | strict",
       "settings_merged": true,
       "hook_merge_conflicts": [],
@@ -1321,19 +1670,19 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
       "stacks_config_written": true,
       "auto_verification": {}
     },
-    "8":   { "status": "done", "gitignore_strategy": "A | B", "team_share_files": [], "entry_point": "...", "final_checklist": {} }
+    "8":   { "status": "done", "gitignore_strategy": "A | B | none(local-only)", "team_share_files": [], "entry_point": "...", "final_checklist": {}, "pr_command_offered": null }
   }
 }
 ```
 
 ---
 
-## 元规则（给执行此命令的 Claude 实例，v2.4 收敛）
+## 元规则（给执行此命令的 Claude 实例，v2.6 增 4 条）
 
 > v2.3 元规则 9-14 与 Iron Laws 16-19 重复，v2.4 已删除冗余。元规则只保留执行操作层面、Iron Laws 不直接涵盖的指引。
 
-1. 读完本命令后**先输出执行计划**：阶段清单、参数解析、改动文件数量上限、规模评级初判、预估总耗时。等用户确认才进 Phase 0。
-2. 每个阶段结束严格输出"阶段卡片"，含 `elapsed` 和 `local_side_effects` 字段（即使为空）。
+1. 读完本命令后**先输出执行计划**：阶段清单、**当前模式（local-only / share）**、参数解析、改动文件数量上限、规模评级初判、预估总耗时。等用户确认才进 Phase 0。
+2. 每个阶段结束严格输出"阶段卡片"，含 `mode`、`elapsed` 和 `local_side_effects` 字段（即使为空）。
 3. 若 Phase 1 报告显示项目已经过完整 onboarding 且无 `--update` 参数，提示用户加 `--update` 或显式 `--resume`；不自行决定走法。
 4. 任何脚本写入前用 `bash -n` 跑一遍语法。
 5. 所有 `${CLAUDE_PROJECT_DIR}` 路径使用 exec form 或正确 quoting，避免空格路径问题。
@@ -1344,4 +1693,8 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 10. **多栈项目按栈分别处理**：Phase 1/3/4/5/6/7 任何按栈生效的步骤都要遍历 `stacks[]`，命令命名空间化，hook 配置文件驱动。
 11. **`--update` 模式下不重做继承的 Phase**：只跑 `update_phases` 中标记的差异项；继承项写入最终报告以便审计。
 12. **Skill 形式 Phase 7 不复制 hook 脚本**：直接在 settings.json 中引用 `.claude/skills/onboard/hooks/<name>.sh` 路径。
+13. **（v2.6）默认 local-only**：未显式 `--share` 时一律走 local-only。Phase 0 前必须打印"将使用 local-only 模式（默认）"让用户知情。`--share` 触发 hard AUTH（"将修改 PROJECT 文件并入仓，团队成员 pull 后会看到 onboarding 产物"）。
+14. **（v2.6）Git 拓扑 hard-block**：submodule / bare / detached HEAD 三种状态绝不开工，Phase 0 立即 abort 并提示具体修复路径。
+15. **（v2.6）模式不可单方面切换**：检测到 state file `mode` 字段与当前命令模式不一致 → hard AUTH 要求显式 `--update` 才能切换；切换记 `mode_migration` 字段。
+16. **（v2.6）Host adapter 决不自动开 PR/MR**：探测出 CLI 可用最多 *offer* 命令字符串 + 自动生成 body，**永远** ASK 用户确认后才执行——开 PR 涉及外部系统状态变更，属 §5 hard AUTH。
 ```
