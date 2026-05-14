@@ -1,12 +1,12 @@
 ---
 name: onboard
 description: 旧项目接入 Claude Code 的标准化引导流程
-argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor] [--allow-large-claude-md]"
+argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor] [--uninstall] [--allow-large-claude-md]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.7)
+# /onboard — Legacy Project Onboarding Protocol (v2.8)
 
 参数：`$ARGUMENTS`
 
@@ -73,9 +73,10 @@ allowed-tools: Read, Glob, Grep
 - `--strict`：任何验证失败立即中止整个流程。
 - `--isolate-branch`（v2.4 新增）：在专用 git 分支 `chore/onboarding-<timestamp>` 上执行写入阶段。失败/不满意切回原分支即可整体回滚。**仅在 `--share` 模式下有意义**；local-only 模式文件均不入仓，分支隔离无收益（Phase 0 检测到 `--local-only --isolate-branch` 组合会发出 warn，但不阻断）。
 - `--doctor`（v2.5 新增）：诊断模式。不跑任何 Phase，不写 PROJECT/OUTPUT，仅做健康检查 + RUNTIME log。详见下文「Doctor Mode」章节。
+- `--uninstall`（v2.8 新增）：卸载模式。按 marker / manifest 反向移除 onboard 在本项目写入的所有内容，提供 snapshot restore 选项。详见下文「Uninstall Mode」章节。
 - `--allow-large-claude-md`（v2.7 新增）：覆盖 CLAUDE.md token 硬上限 5000。仅在项目实测确需超长 CLAUDE.md 时使用；触发 Phase 3 hard AUTH 并标 `phase_3.token_budget_override: true`。
 
-`--resume`、`--update`、`--doctor` 三者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。
+`--resume`、`--update`、`--doctor`、`--uninstall` 四者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。
 
 ### 阶段卡片输出契约
 
@@ -287,6 +288,124 @@ Suggested Claude Code plugins (review each):
 
 ---
 
+## Marker conventions（v2.8 新增 — 可逆性 Iron 级）
+
+任何 onboard 写入项目的内容必须可识别、可撤销。两类文件用两种 marker：
+
+### Line-based 文件（`.gitignore` / `.git/info/exclude` / `CLAUDE.md` / `CLAUDE.local.md` / `.tool-versions`）
+
+```
+# >>> /onboard v<version> — managed block, do not edit between markers >>>
+<onboard 写入的内容>
+# <<< /onboard v<version> <<<
+```
+
+CLAUDE.md / CLAUDE.local.md 用 HTML 注释：
+```markdown
+<!-- >>> /onboard v<version> — managed block, do not edit between markers >>> -->
+...
+<!-- <<< /onboard v<version> <<< -->
+```
+
+**用户的内容写在 marker 块外**——onboard 卸载时只动 marker 块内的内容。
+
+### JSON 文件（`.claude/settings.json` / `.claude/settings.local.json`）
+
+JSON 不支持注释。约定：onboard 写入的每个 hook 块和 env 区段附加未知字段标记（标准 JSON 解析器忽略未知字段）：
+
+```json
+{
+  "env": {
+    "ONBOARD_FORBIDDEN_PATHS": "...",
+    "_onboard_managed_env_keys": ["ONBOARD_FORBIDDEN_PATHS", "ONBOARD_TOUCHED_LOG", "ONBOARD_STOP_MODE", "ONBOARD_STACKS_FILE"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "_onboard_managed": true,
+        "_onboard_version": "2.8",
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "..." }]
+      }
+    ]
+  }
+}
+```
+
+**移除规则**：卸载时遍历 `hooks.*[].matcher` 数组，过滤掉 `_onboard_managed: true` 的项；从 `env` 删除 `_onboard_managed_env_keys[]` 列出的键 + 该 marker 本身。
+
+### Manifest 作为权威清单
+
+无论 marker 多周全，**always** 维护 `<state-dir>/onboard-manifest.json` 作为"onboard 改过什么"的权威清单：
+
+```json
+{
+  "version": "2.8",
+  "mode": "local-only",
+  "installed_at": "<ISO>",
+  "last_updated": "<ISO>",
+  "managed_files_created": ["CLAUDE.local.md", ".claude/settings.local.json", ".claude/local-only/onboarding-state.json", ".claude/local-only/onboarding-logs/", ".claude/local-only/onboard-manifest.json"],
+  "managed_files_modified": [],
+  "managed_blocks_in_files": {
+    ".git/info/exclude": "/v2.8/",
+    "CLAUDE.local.md": "/v2.8/"
+  },
+  "managed_settings_paths": [
+    "$.env._onboard_managed_env_keys",
+    "$.hooks.PreToolUse[?(@._onboard_managed==true)]",
+    "$.hooks.PostToolUse[?(@._onboard_managed==true)]",
+    "$.hooks.Stop[?(@._onboard_managed==true)]"
+  ],
+  "snapshots_dir": ".claude/local-only/onboard-snapshots/"
+}
+```
+
+**冲突时优先级**：manifest > marker > 字符串猜测。卸载时若 manifest 缺失（早期版本残留）→ fallback 到 marker；都缺 → 拒绝自动卸载，列出可疑路径让用户决定。
+
+---
+
+## Snapshot protocol（v2.8 新增 — 可逆性 Iron 级）
+
+### 触发点
+
+每次 Phase 写入 PROJECT 文件前，**当回**第一次写入触发一次快照：
+
+| Phase | 拍快照的文件 |
+|---|---|
+| Phase 3 | `CLAUDE.md` / `CLAUDE.local.md`（如已存在） |
+| Phase 4 | `.eslintignore` / `.prettierignore` / `pyproject.toml`（如已存在并即将被改）|
+| Phase 6 | `.github/workflows/*.yml` / `.gitlab-ci.yml` / `lefthook.yml` / `.pre-commit-config.yaml`（如即将被改） |
+| Phase 7 | `.claude/settings.json` / `.claude/settings.local.json`（如已存在） |
+| Phase 8 | `.gitignore` / `.git/info/exclude`（如已存在） |
+
+### 快照目录
+
+- `--share` 模式：`.claude/onboard-snapshots/`
+- `--local-only` 模式：`.claude/local-only/onboard-snapshots/`
+
+文件名格式：`<basename>.<ISO-UTC-timestamp>.<phase>.pre`（如 `settings.json.20260514T163000Z.phase7.pre`）。
+
+### Snapshot index
+
+每次拍快照同时追加到 `<snapshots_dir>/index.jsonl`（一行一 JSON 记录）：
+
+```json
+{"ts":"2026-05-14T16:30:00Z","phase":"3","action":"pre-modify","original":"CLAUDE.md","snapshot":"CLAUDE.md.20260514T163000Z.phase3.pre","sha256":"<hash>"}
+```
+
+### 保留策略
+
+- 同一文件最近 5 个 `pre-modify` 快照保留
+- 单次 onboarding 完成后追加一个 `post-install` 快照
+- `--update` 完成后追加一个 `post-update.<old>-<new>` 快照
+- 超出保留数自动清理最旧的
+
+### 卸载时使用
+
+Uninstall Mode 展示**最早的 `pre-modify` 快照**作为 restore 候选——这是 onboard 第一次接触该文件之前的状态，对应"完全回退"。
+
+---
+
 ## Phase 0 · Preflight
 
 ### 工具可用性策略
@@ -441,6 +560,7 @@ next:         Phase 1 (Discovery)
    | v2.2 及更新 | `local_side_effects`、`mutex_resolutions` | 从 `phases.6/7` 推断 |
    | v2.5 及之前 | `mode`、`git_topology`、`team_signals`、`git_host`、`mode_migration`、`git_info_exclude_injected` | v2.5 及之前都是 share 行为 → `mode: "share"`、`mode_migration: null`；其余字段重跑 Phase 0 探测填充 |
    | v2.6 及之前 | `phase_1_7`、`phase_2_5`、`phases.3.claude_md_tokens`、`phases.3.token_budget_override`、`phases.3.auto_compressions_applied` | 标 `update_phases: ["1_7", "2_5", "3"]`，重跑 Phase 1.7 深度分析、Phase 2.5 install plan、Phase 3 token 预算检查（CLAUDE.md 多半超 token，可能要压缩） |
+   | v2.7 及之前 | `onboard_manifest_path`、`snapshots`、marker 块、`_onboard_managed` JSON 标记 | 反向扫描已写入的 PROJECT 文件 + settings 文件，按 v2.8 marker 协议补打 marker；写出 manifest；为缺 snapshot 的 managed file 标 `irrecoverable: true`（用户日后想 restore 只能从 git 历史） |
    | 任何版本 | `entry_point` | 检测当前发布路径（Skill or Command） |
 
 **v2.5→v2.6 升级特殊处理**：v2.5 项目原本就是 share 行为，升级后 `mode: "share"`；用户若想改回 local-only 必须显式跑 `/onboard --update --local-only`，此时 Phase 0.5 标 `mode_migration: "share→local-only"` + Phase 8 输出"清理 .gitignore 中 onboard 条目 / 取消 git tracking 的 CLAUDE.md / settings.json"步骤（涉及 PROJECT 改动 → hard AUTH）。
@@ -1822,11 +1942,12 @@ tea pulls create \
 | **D12** | **行格式约束（v2.7 新增）**：`## Don't` 每行 ≤ 100 chars + 1 行；`## Layout` 行含 `imports →`；占位符无残留 | 任一违规 | drifted | both |
 | **D13** | **Plugin 推荐表 vs 实际安装漂移（v2.7 新增）**：state file `phase_2_5.plugin_recommendations.approved` 与 `~/.claude/plugins/` / 项目级 `.claude/plugins/` 实际安装比对 | 用户 approved 的 plugin 不在已安装列表 | drifted | both |
 | **D14** | **Install plan 完整性（v2.7 新增）**：Phase 2.5 标记的"approved dev-tool"是否已实际安装（按 lockfile 比对） | approved 但未装 | drifted | share |
+| **D15** | **Uninstall 可逆性（v2.8 新增）**：manifest 存在 + managed_files 都仍在 manifest 列出的路径 + 至少一个 pre-modify snapshot 可用 | manifest 缺失 / managed file 路径漂移 / 无 snapshot | drifted | both |
 
 ### 三态健康度
 
-- **healthy**：D1–D14 全过
-- **drifted**：仅 drifted 级失败（D2/D3/D7/D8/D10/D12/D13/D14）→ 建议 `/onboard --update` 或针对性手动修复
+- **healthy**：D1–D15 全过
+- **drifted**：仅 drifted 级失败（D2/D3/D7/D8/D10/D12/D13/D14/D15）→ 建议 `/onboard --update` 或针对性手动修复
 - **broken**：任一 broken 级失败（D1/D4/D5/D6/D9/D11）→ 必须人工介入或重新 onboard
 
 ### 输出格式
@@ -1873,6 +1994,90 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
+## Uninstall Mode（v2.8 新增）
+
+**触发**：`/onboard --uninstall`。**不跑任何 Phase**，按 manifest + marker 反向移除 onboard 在本项目的所有写入；不动 marker 块外的内容。
+
+**前置**：当前目录是 git 仓库 + 存在 onboard manifest（`.claude/local-only/onboard-manifest.json` 或 `.claude/onboard-manifest.json`）。无 manifest 时拒绝自动卸载（fallback 到手动指引）。
+
+### 动作（按顺序）
+
+1. **读取 manifest**：确定 mode 与 managed files / blocks / settings paths
+2. **干跑预览**（强制 hard AUTH）：
+   ```
+   Uninstall plan:
+     - Remove file:       .claude/local-only/onboarding-state.json (12 KB)
+     - Remove file:       .claude/local-only/onboarding-logs/ (5 files, 84 KB)
+     - Remove file:       .claude/local-only/onboard-snapshots/ (12 files, 256 KB)
+     - Remove file:       .claude/local-only/stacks.json
+     - Remove file:       CLAUDE.local.md (managed block; non-onboard content preserved)
+     - Remove file:       .claude/settings.local.json (4 hook entries + 4 env keys)
+     - Edit:              .git/info/exclude (remove block between markers, 7 lines)
+
+   Snapshots available for restore (oldest first):
+     - CLAUDE.local.md.20260514T160000Z.phase3.pre  → pre-onboard state (recommended)
+     - settings.local.json.20260514T163000Z.phase7.pre
+
+   Proceed? [Y/n/restore-snapshot]
+   ```
+3. **用户确认后执行**（每类一次 §5 hard AUTH，**不**用 batch AUTH——卸载是单方向不可逆操作）：
+   - 逐 file 删除 / 编辑（marker 块内）
+   - JSON 文件：jq 过滤 `_onboard_managed: true` 项 + 删除 `_onboard_managed_env_keys` 列出的 env key
+   - 删除空 hook 数组 / 空 env 对象（如果 onboard 是该 settings 唯一来源）
+   - 保留 settings 文件本身（用户可能有自己的内容）
+4. **restore-snapshot 流程**（用户选了 restore 而非 remove）：
+   - 列出每个 managed file 的最早 pre-modify snapshot
+   - 用 `cp <snapshot> <original>` 恢复
+   - 删除 onboard 在该文件之外的写入（如 `.git/info/exclude` 块）
+5. **最终清理**：
+   - 删除 manifest 自身
+   - 删除 state file
+   - 删除 snapshots 目录（用户也可保留备查）
+6. **不动**：
+   - 用户在 marker 块外的内容
+   - 用户在 `.claude/settings.local.json` 中自己加的、不带 `_onboard_managed` 标记的 hook 项
+   - 全局安装的 skill 文件（`~/.claude/skills/onboard/`）—— 这些用 `install.sh uninstall` 处理
+   - 项目内已 commit 的内容（share 模式：用户应自行 `git revert` 之前 commit 的 onboard PR）
+
+### Iron Law 边界
+
+- **Iron Law 14（No file-level reset on PROJECT）**：卸载使用 atomic write（写到临时文件 + rename）而非 `git checkout` / `git restore`
+- **Iron Law 16（Forbidden zones global）**：卸载完毕后 `confirmed_forbidden_zones` 在所有派生位置必须同步消失（manifest / settings env / lint ignore（share 模式）/ hook env）
+- **Iron Law 2（No silent overwrite）**：删除 / 编辑前一律展示 diff，**绝不**静默移除
+
+### 卸载后状态
+
+成功卸载后 `git status` 应只显示：
+- `--local-only` 模式：0 项变更（local-only 本来就没动 PROJECT）
+- `--share` 模式：列出 onboard 之前 commit 过的入仓文件（提示用户用 `git revert <commit>` 撤回 commit 历史，或保留作为审计痕迹）
+
+### 错误处理
+
+- Manifest 找不到 → 拒绝自动卸载，输出手动清理 checklist：
+  ```
+  Manual cleanup (no manifest found — earlier version or corruption):
+    1. rm -rf .claude/local-only/  (or .claude/onboarding-*)
+    2. Edit .git/info/exclude: remove lines between '# >>> /onboard' and '# <<< /onboard'
+    3. Edit .gitignore (share mode only): same marker pair
+    4. Edit .claude/settings.local.json: remove entries with "_onboard_managed": true
+    5. Edit CLAUDE.local.md: remove content between <!-- >>> /onboard --> markers
+       (or delete the file if onboard was the only writer)
+  ```
+- Snapshot 损坏 / 缺失 → 跳过 restore 选项，仅提供 remove
+- 任一删除失败 → 中止剩余步骤，输出已完成 / 未完成清单（卸载本身要可重入）
+
+### 与 install.sh uninstall 的分工
+
+| 作用域 | 命令 | 清理什么 |
+|---|---|---|
+| 单个项目内的 onboard 痕迹 | `/onboard --uninstall` | 本节定义的所有内容 |
+| 全局 skill 安装本身 | `install.sh uninstall` 或 `/plugin uninstall onboard` | `~/.claude/skills/onboard/` 整个目录 |
+| 项目级 skill 副本（share 模式） | `git rm -r .claude/skills/onboard && commit` | 用户手动 |
+
+**强烈建议顺序**：先 per-project `--uninstall`（在每个 onboarded 项目里跑），再 global `install.sh uninstall`。否则 global 卸载后 `/onboard` 命令消失，per-project 清理就得手动了。
+
+---
+
 ## 异常处理
 
 ### 中途中止 / 失败
@@ -1906,7 +2111,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 状态文件结构（v2.7 schema）
+## 状态文件结构（v2.8 schema）
 
 **路径**：
 - `--local-only` 模式（默认）：`.claude/local-only/onboarding-state.json`
@@ -1914,8 +2119,8 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ```json
 {
-  "version": "2.7",
-  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | 2.6 | null",
+  "version": "2.8",
+  "migrated_from": "1 | 2.0 | 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | 2.6 | 2.7 | null",
   "mode": "local-only | share",
   "mode_migration": "local-only→share | share→local-only | null",
   "started_at": "...",
@@ -2019,13 +2224,22 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
       "auto_verification": {}
     },
     "8":   { "status": "done", "gitignore_strategy": "A | B | none(local-only)", "team_share_files": [], "entry_point": "...", "final_checklist": {}, "pr_command_offered": null }
+  },
+  "onboard_manifest_path": ".claude/local-only/onboard-manifest.json | .claude/onboard-manifest.json",
+  "snapshots": {
+    "dir": ".claude/local-only/onboard-snapshots/ | .claude/onboard-snapshots/",
+    "index_path": "<dir>/index.jsonl",
+    "count_pre_modify": 0,
+    "count_post_install": 0,
+    "count_post_update": 0,
+    "retention_per_file": 5
   }
 }
 ```
 
 ---
 
-## 元规则（给执行此命令的 Claude 实例，v2.7 共 19 条）
+## 元规则（给执行此命令的 Claude 实例，v2.8 共 22 条）
 
 > v2.3 元规则 9-14 与 Iron Laws 16-19 重复，v2.4 已删除冗余。元规则只保留执行操作层面、Iron Laws 不直接涵盖的指引。
 
@@ -2048,4 +2262,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 17. **（v2.7）CLAUDE.md token 硬上限**：草稿 token 估算 ≥ 5000 → Phase 3 fail，除非 `--allow-large-claude-md` flag 已显式给出（写入 state `token_budget_override`）。soft cap 2500 触发自动压缩 + warn。Token = `wc -c / 4` 粗估，无须依赖 tiktoken。
 18. **（v2.7）`## Don't` 强制 1 行**：每行 ≤ 100 chars 且不换行。原因过长 → 拆到 commit msg / ADR / issue link，CLAUDE.md 只留引用 ID。任一违规 Phase 3 fail。
 19. **（v2.7）安装永不自动执行系统级命令**：Phase 2.5 Install Plan 中类 2（system CLIs）一律 offer-only；类 1（dev deps）仅 share 模式且 batch AUTH 后才执行；类 4（Claude Code plugins）一律 offer-only。Iron Law 7 在 v2.7 仍完整生效——batch AUTH = explicit AUTH（颗粒度变，语义未变）。
+20. **（v2.8）所有 PROJECT 写入必须可逆**：line-based 文件用 `# >>> /onboard v<ver>` 块标；JSON 用 `_onboard_managed: true` 字段；同时维护 `onboard-manifest.json` 作为权威清单。任何不加 marker / 不写 manifest 的 PROJECT 写入是 §8 SAFETY 违规。
+21. **（v2.8）首次写入前 snapshot**：Phase 3/4/6/7/8 即将修改既有 PROJECT 文件时，**必须**先快照到 `<state-dir>/onboard-snapshots/<name>.<ISO>.phase<N>.pre`，并在 `index.jsonl` 追加记录。无 snapshot 的写入 = 不可逆 = 拒绝执行。
+22. **（v2.8）卸载是单方向不可逆操作**：`--uninstall` **不**用 batch AUTH；每类删除单独 hard AUTH；用户选 restore-snapshot 时优先用 pre-modify 而非 post-install snapshot；卸载本身要可重入（中途失败不留半成品）。
 ```

@@ -1,0 +1,64 @@
+{
+  "name": "onboard",
+  "version": "2.8.0",
+  "displayName": "Onboard",
+  "description": "Legacy project onboarding protocol for Claude Code. Analyzes the project, generates a compact CLAUDE.md, configures hooks, manages forbidden zones, aligns CI, and batches install plan.",
+  "author": {
+    "name": "sds",
+    "url": "https://github.com/sdsrss"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sdsrss/onboard",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sdsrss/onboard.git"
+  },
+  "keywords": [
+    "onboarding",
+    "claude-code",
+    "skill",
+    "project-setup",
+    "automation",
+    "hooks",
+    "ci-alignment",
+    "multi-language"
+  ],
+  "skills": [
+    {
+      "name": "onboard",
+      "path": "SKILL.md",
+      "command": "/onboard"
+    }
+  ],
+  "supports": {
+    "claudeCode": ">=1.0.0"
+  },
+  "platform": {
+    "supported": ["linux", "darwin", "wsl"],
+    "unsupported": ["win32-native"],
+    "notes": "Windows native is not supported; use WSL2. macOS needs coreutils for gtimeout (brew install coreutils); v2.5+ hooks fall back gracefully if absent."
+  },
+  "dependencies": {
+    "required": ["git", "bash>=3.2", "jq"],
+    "optional": ["make", "coreutils (macOS for gtimeout)", "gh OR glab OR tea (for PR/MR offer)", "mise OR asdf (for runtime pinning)"]
+  },
+  "lifecycle": {
+    "install": "scripts/lifecycle/install.sh",
+    "update": "scripts/lifecycle/update.sh",
+    "uninstall": "scripts/lifecycle/uninstall.sh"
+  },
+  "files": {
+    "spec": "SKILL.md",
+    "hooks": [
+      "hooks/guard-bash.sh",
+      "hooks/guard-edit.sh",
+      "hooks/post-edit-check.sh",
+      "hooks/stop-verify.sh"
+    ],
+    "templates": [
+      "settings.template.json",
+      "settings.local.template.json"
+    ],
+    "installer": "install.sh"
+  }
+}

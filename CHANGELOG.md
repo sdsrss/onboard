@@ -4,7 +4,61 @@
 
 ---
 
-## v2.7 — 深度项目认知 + 提取式 CLAUDE.md + Install orchestration（current）
+## v2.8 — 完美的安装/更新/卸载（current）
+
+把"装得上、留得净、卸得干净"做到 Iron 级。两条安装通道并行存在 + 全链路可逆性 + snapshot/restore。
+
+### Added
+
+- **`install.sh` 通用安装器**（`curl | bash` 友好）：
+  - `install` / `update` / `uninstall` / `doctor` / `help` 五个子命令
+  - 全局（`~/.claude/skills/onboard/`）或项目内（`./.claude/skills/onboard/`）安装目标
+  - `update` 前检查工作树干净（`ONBOARD_ALLOW_DIRTY=1` 可绕过）
+  - `uninstall` 默认交互确认；`ONBOARD_CONFIRM_UNINSTALL=yes` 非交互
+  - `doctor` 检测安装状态 + 必需 / 可选依赖（git/bash/jq + gh/glab/tea/make/coreutils/mise/asdf）
+- **`.claude-plugin/plugin.json` 插件清单**：符合 Claude Code 插件规范的 manifest（name / version / skills / lifecycle / supports / platform）
+- **Lifecycle scripts**（`scripts/lifecycle/install.sh|update.sh|uninstall.sh`）：Claude Code `/plugin install|update|uninstall onboard` 调用的生命周期钩子；负责 chmod / 健康检查 / 提示语
+- **`/onboard --uninstall` 子命令**（项目级卸载）：
+  - 按 manifest + marker 反向移除 onboard 在本项目的所有写入
+  - 不动用户在 marker 块外的内容
+  - 强制 dry-run 预览 + 每类 hard AUTH
+  - 提供 snapshot restore 候选（pre-modify 快照）
+  - 中途失败可重入
+- **Marker 约定**（v2.8 核心可逆性机制）：
+  - Line-based 文件（.gitignore / .git/info/exclude / CLAUDE.md 等）：`# >>> /onboard v<ver>` / `<!-- >>> /onboard v<ver> -->` 块标
+  - JSON 文件（settings.json / settings.local.json）：每 hook 块加 `_onboard_managed: true` + `_onboard_version` 字段，env 区段加 `_onboard_managed_env_keys` 列表
+  - 权威清单：`<state-dir>/onboard-manifest.json` 记录 managed files / blocks / settings paths / snapshots dir
+- **Snapshot protocol**：
+  - Phase 3/4/6/7/8 首次写入既有 PROJECT 文件前必须快照
+  - 文件名 `<basename>.<ISO>.<phase>.pre`，目录 `<state-dir>/onboard-snapshots/`
+  - 同时追加 `index.jsonl`（ts/phase/action/sha256）
+  - 保留策略：每文件最近 5 个 pre-modify + 1 个 post-install + 每次 update 一个 post-update
+- **Doctor mode D15**：卸载可逆性检查（manifest 存在 + managed_files 仍在 manifest 路径上 + 至少一个 pre-modify snapshot 可用）
+- **元规则 20–22**（v2.8 新增）：写入必须可逆 / 首次写入前 snapshot / 卸载是单方向不可逆操作
+
+### Changed
+
+- **Settings 模板加 marker 字段**：`settings.template.json` 与 `settings.local.template.json` 现在每个 hook 块和 env 段都带 `_onboard_managed: true` / `_onboard_version` / `_onboard_managed_env_keys`，开箱即可卸载
+- **状态文件 schema v2.8**：新增 `onboard_manifest_path`、`snapshots`（dir / index_path / counts / retention）
+- **Phase 0.5 Migration**：补 v2.7→v2.8 字段映射；旧版残留 PROJECT 文件自动加 marker；缺 snapshot 的标 `irrecoverable: true`
+- **README 重写**："安装" 节给出三条等价路径（plugin / curl bash / 手动 cp）
+
+### Fixed
+
+- v2.7 没有正式的"卸载"通道：用户卸载靠人工手撸路径
+- v2.7 不存在写入前 snapshot：误改用户文件后无法 restore
+- v2.7 marker 约定模糊：仅 `.gitignore` 大致约定，没规范化到所有写入文件
+- v2.7 `.claude/settings.json` 修改不可识别：onboard 与第三方 hook 共存时无法区分谁写的
+
+### Known limits
+
+- `.claude-plugin/plugin.json` 是按现有 Claude Code 插件生态规范推断的合理猜测；实际 plugin 系统对 schema 的要求可能有差异，需要在真实 `/plugin install` 上验证
+- Snapshot 占空间：典型项目 12 个 pre-modify snapshot × 平均 5KB = ~60KB，可接受
+- v2.7→v2.8 升级时旧 onboarding 的 PROJECT 写入若无 marker → migration 反向扫描加 marker，但 snapshot 历史不可恢复
+
+---
+
+## v2.7 — 深度项目认知 + 提取式 CLAUDE.md + Install orchestration
 
 合并交付原计划中的 v2.7 + v2.8。三大主题：(1) 项目认知深度（Phase 1.7 深度分析）；(2) CLAUDE.md 信息密度反转（提取式模板 + token 预算）；(3) 安装编排（Phase 2.5 Install Plan + Claude Code plugin 推荐矩阵）。
 

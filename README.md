@@ -12,70 +12,113 @@
 
 ## 安装
 
-### 方式 1：作为团队共享 Skill（推荐）
+三条等价的安装路径，按你的 Claude Code 版本与团队习惯选一条。
 
-把整个 `onboard/` 目录放到项目的 `.claude/skills/` 下，作为团队共享的 Skill 与项目一起入仓：
+### 路径 A · Claude Code 原生 `/plugin install`（推荐，v2.8+）
+
+如果你的 Claude Code 版本支持 `/plugin install`：
+
+```
+/plugin install onboard
+```
+
+安装到 `~/.claude/plugins/onboard/`（或 Claude Code 的标准 plugin 路径）。会执行 `scripts/lifecycle/install.sh` 钩子，验证依赖 + chmod 脚本。
+
+升级：
+
+```
+/plugin update onboard
+```
+
+卸载：
+
+```
+# 先在每个 onboarded 的项目里跑这一步
+cd <project> && /onboard --uninstall
+# 然后卸载全局 plugin
+/plugin uninstall onboard
+```
+
+### 路径 B · `curl | bash` 通用安装（v2.8+）
+
+不依赖 `/plugin` 命令支持，任何 Claude Code 版本可用：
 
 ```bash
-cd <your-project-root>
-mkdir -p .claude/skills
-cp -r <path-to-this-package>/onboard .claude/skills/
-chmod +x .claude/skills/onboard/hooks/*.sh
+# 安装到 ~/.claude/skills/onboard/
+curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bash
+
+# 升级
+curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bash -s -- update
+
+# 卸载（先在每个项目里跑 /onboard --uninstall）
+curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bash -s -- uninstall
+
+# 健康检查（不改任何状态）
+curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bash -s -- doctor
 ```
 
-最终目录结构：
-
-```
-<your-project>/
-└── .claude/
-    └── skills/
-        └── onboard/
-            ├── SKILL.md
-            ├── hooks/
-            │   ├── guard-bash.sh        (executable)
-            │   ├── guard-edit.sh        (executable)
-            │   ├── post-edit-check.sh   (executable)
-            │   └── stop-verify.sh       (executable)
-            ├── settings.template.json
-            ├── README.md
-            └── CHANGELOG.md
-```
-
-提交到 git：
+安装到项目内（团队共享，需要团队接受 AI 工具入仓）：
 
 ```bash
+ONBOARD_TARGET=project ./install.sh install
 git add .claude/skills/onboard
-git commit -m "chore: add /onboard skill (v2.4)"
+git commit -m "chore: add /onboard skill"
 ```
 
-团队成员 pull 后 `/onboard` 命令立即可用。
+环境变量覆盖：
 
-### 方式 2：作为个人全局 Skill
+| 变量 | 用途 | 默认 |
+|---|---|---|
+| `ONBOARD_REPO` | git URL | `https://github.com/sdsrss/onboard.git` |
+| `ONBOARD_BRANCH` | 分支或 tag | `main` |
+| `ONBOARD_TARGET` | `user`（`~/.claude/skills/`）/ `project`（`./.claude/skills/`） | `user` |
+| `ONBOARD_ALLOW_DIRTY` | `1` 跳过 update 的脏树检查 | unset |
+| `ONBOARD_CONFIRM_UNINSTALL` | `yes` 跳过 uninstall 交互确认 | unset |
 
-放到 `~/.claude/skills/onboard/`，所有项目都能用，不入仓：
+### 路径 C · 手动 git clone（最透明）
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -r <path-to-this-package>/onboard ~/.claude/skills/
+# 全局
+git clone --depth 1 https://github.com/sdsrss/onboard.git ~/.claude/skills/onboard
 chmod +x ~/.claude/skills/onboard/hooks/*.sh
+
+# 升级
+cd ~/.claude/skills/onboard && git pull && chmod +x hooks/*.sh
+
+# 卸载
+rm -rf ~/.claude/skills/onboard
 ```
 
-### 方式 3：转为 Command 形式
+### 安装后目录结构
 
-如果你团队还没用 Skill 形式或遇到 `disable-model-invocation` 兼容性问题，可改用 Command 形式：
-
-```bash
-cp <path-to-this-package>/onboard/SKILL.md .claude/commands/onboard.md
+```
+~/.claude/skills/onboard/
+├── SKILL.md                    # 协议规范
+├── .claude-plugin/
+│   └── plugin.json             # /plugin install 元数据
+├── hooks/
+│   ├── guard-bash.sh           (executable)
+│   ├── guard-edit.sh           (executable)
+│   ├── post-edit-check.sh      (executable)
+│   └── stop-verify.sh          (executable)
+├── settings.template.json      # share 模式参考
+├── settings.local.template.json # local-only 模式参考
+├── scripts/lifecycle/          # /plugin 生命周期钩子
+├── install.sh                  # 通用安装器
+├── README.md / CHANGELOG.md / LICENSE
 ```
 
-注意 Command 形式下 hook 脚本会由 Phase 7 **动态生成**到 `.claude/hooks/`，不复用本包的预制脚本。如果想沿用本包脚本，手动复制：
+### 项目级 vs 全局安装
 
-```bash
-cp -r <path-to-this-package>/onboard/hooks .claude/hooks
-chmod +x .claude/hooks/*.sh
-```
+| 维度 | 全局（`~/.claude/skills/`） | 项目级（`./.claude/skills/`） |
+|---|---|---|
+| 入仓 | 否 | 是（团队共享） |
+| 多机同步 | 各机器各装 | git pull 即同步 |
+| 升级 | 一次升级所有项目可用 | 每个项目 PR 升级 |
+| 团队拒绝 AI 时 | 仍可用（个人） | 不该用（污染团队） |
+| 推荐 | local-only 模式 / 个人试水 | share 模式 / 团队认可后 |
 
-并按 `settings.template.json` 配置 `.claude/settings.json`（注意路径要从 `.claude/skills/onboard/hooks/` 改成 `.claude/hooks/`）。
+**强烈建议默认全局安装**——配合 `/onboard --local-only`（v2.6+ 默认）做到对团队 0 影响。
 
 ---
 
@@ -115,7 +158,8 @@ Claude 会先输出**执行计划**（阶段清单、预估改动文件数、规
 | `--update` | 升级旧版 onboarding 到当前 spec（触发 Phase 0.5 Migration） |
 | `--strict` | 任何验证失败立即中止 |
 | `--isolate-branch` | 在专用分支跑写入阶段（**仅 `--share` 模式有意义**，分支前缀自动从团队习惯探测，fallback `chore/`） |
-| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 健康度（D1-D14 共 14 项），输出 `healthy \| drifted \| broken` |
+| `--doctor` | **v2.5 新增**：诊断模式。不跑任何 Phase，只检查已有 onboarding 健康度（D1-D15 共 15 项），输出 `healthy \| drifted \| broken` |
+| `--uninstall` | **v2.8 新增**：项目级卸载。按 marker / manifest 反向移除 onboard 在本项目的所有写入；提供 snapshot restore 选项 |
 | `--allow-large-claude-md` | **v2.7 新增**：覆盖 CLAUDE.md token 硬上限 5000。Phase 3 触发 hard AUTH 才能写超大 CLAUDE.md |
 
 ### 决策树：我该用哪个模式？
@@ -330,15 +374,68 @@ CLAUDE.md 在多栈项目里会用 `## Stacks`（多栈变体）而非 `## Stack
 
 ---
 
+## 卸载 / 恢复（v2.8 新增）
+
+`/onboard --uninstall` 反向移除 onboard 在本项目写入的所有内容。**先做项目级，再做全局**。
+
+### 项目级卸载
+
+在已 onboarded 的项目里：
+
+```
+/onboard --uninstall
+```
+
+按 manifest + marker 准确识别 onboard 写过的内容并展示卸载预览，包括 snapshot restore 候选。
+
+三种选择：
+- `Y`：按 marker / manifest 精准移除（保留用户在 marker 块外的内容）
+- `restore-snapshot`：恢复到 onboard 首次写入前的快照（最干净的回退）
+- `n`：取消，不动任何东西
+
+### 全局卸载
+
+```bash
+# install.sh 路径
+~/.claude/skills/onboard/install.sh uninstall
+
+# /plugin 路径
+/plugin uninstall onboard
+```
+
+⚠️ **顺序至关重要**：先在每个 onboarded 的项目里 `/onboard --uninstall`，**再**做全局卸载。否则 `/onboard` 命令消失后只能手动清理。
+
+### Marker / Manifest 协议（可逆性 Iron 级）
+
+onboard 任何 PROJECT 文件写入都加 marker：
+
+- Line-based（`.gitignore` / `.git/info/exclude`）：`# >>> /onboard v<ver> >>>` ... `# <<< /onboard v<ver> <<<`
+- Markdown（`CLAUDE.md` / `CLAUDE.local.md`）：`<!-- >>> /onboard v<ver> >>> -->` ... `<!-- <<< /onboard v<ver> <<< -->`
+- JSON（`settings.json` / `settings.local.json`）：每条目 `_onboard_managed: true` + `_onboard_version`
+
+权威清单：`.claude/local-only/onboard-manifest.json`（local-only）或 `.claude/onboard-manifest.json`（share）记录所有 managed files + paths + snapshots dir。
+
+---
+
 ## 升级与版本
 
-当前版本：**v2.7**。
+当前版本：**v2.8**。
+
+**v2.8 新增能力一览**：
+- 通用 `install.sh` 安装器（curl-bash 风格）+ `.claude-plugin/plugin.json` 原生插件清单
+- `/onboard --uninstall` 项目级卸载（marker / manifest 驱动，可逆 Iron 级）
+- Marker 约定（line-based / markdown / JSON 三种）+ snapshot protocol（Phase 3/4/6/7/8 入口快照）
+- Doctor mode D15（卸载可逆性检查）
 
 **v2.7 新增能力一览**：
 - 深度项目认知（Phase 1.7）：构建/测试命令、目录依赖方向、代码规范、行为禁令、覆盖率信号 8 维度自动抽取
 - 提取式 CLAUDE.md：token 预算 soft 2500 / hard 5000；每行 load-bearing；空节不写
 - Install Plan（Phase 2.5）：dev tools / system CLIs / language runtimes / Claude Code plugins 四类清单 batch 授权
 - Claude Code plugin 推荐矩阵（15 项硬编码 + open recommendation fallback）
+
+**从 v2.7 升级**：
+- `--update` 触发 Phase 0.5 Migration 把旧 PROJECT 写入加上 v2.8 marker；缺 snapshot 的标 `irrecoverable: true`
+- 新 onboarding 全程走 marker / snapshot 协议，可一键 `--uninstall`
 
 **从 v2.6 升级**：
 - `--update` 会触发 Phase 1.7 / 2.5 / 3 重跑（Phase 0.5 自动标 `update_phases`）

@@ -4,13 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.7). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v2.8). The "code" being maintained is:
 
-- `SKILL.md` — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D14 checks), Mode model (`--local-only` default vs `--share`, v2.6+), and Install Plan / Plugin recommendation matrix (v2.7+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) is what registers it as a Skill when placed under `.claude/skills/onboard/`.
+- `SKILL.md` — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), and Uninstall Mode + marker/snapshot protocols (v2.8+). This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill when placed under `.claude/skills/onboard/`.
 - `hooks/*.sh` (4 scripts) — supporting files referenced from settings files by the *installer project*, not run inside this repo.
 - `settings.template.json` — reference config for `--share` mode (`.claude/settings.json`).
 - `settings.local.template.json` (v2.6) — reference config for `--local-only` mode (`.claude/settings.local.json`); hooks reference user-global `~/.claude/skills/onboard/` install path.
-- `README.md` — install + usage guide for end users (the project installing this skill).
+- `install.sh` (v2.8) — universal installer (install/update/uninstall/doctor); works via `curl | bash`.
+- `.claude-plugin/plugin.json` (v2.8) — Claude Code plugin manifest for `/plugin install onboard`.
+- `scripts/lifecycle/*.sh` (v2.8) — install/update/uninstall lifecycle hooks called by `/plugin <action> onboard`.
+- `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
 Consumers install this package into their project at `.claude/skills/onboard/`, then `/onboard` becomes available as a slash command in their Claude Code session.
@@ -46,6 +49,8 @@ Default-flipping was deliberate: most companies have only a few AI-tool early ad
 
 **Install orchestration (v2.7)** — Phase 2.5 batches missing dev tools, system CLIs, language runtimes, and Claude Code plugins into four authorization lists. System CLIs and Claude Code plugins are NEVER auto-executed; only command strings are offered. Iron Law 7 holds: batch AUTH = explicit AUTH (granularity changes, semantics don't).
 
+**Reversibility (v2.8, Iron-grade)** — every PROJECT write is bracketed by markers (line-based files: `# >>> /onboard v<ver> >>>`; markdown: `<!-- >>> -->`; JSON: `_onboard_managed: true`) and tracked in a manifest at `<state-dir>/onboard-manifest.json`. Phase 3/4/6/7/8 snapshot original PROJECT files to `<state-dir>/onboard-snapshots/` BEFORE first modification. `/onboard --uninstall` uses manifest + markers to surgically reverse; users can also choose `restore-snapshot` to recover the pre-onboard state.
+
 ## Iron Laws and meta-rules (non-negotiable when editing SKILL.md)
 
 SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules** (v2.6 added 13–16; v2.7 added 17–19). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
@@ -60,6 +65,9 @@ SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules*
 - **Meta-rule 17 (v2.7 CLAUDE.md hard token ceiling)** — Phase 3 refuses CLAUDE.md ≥ 5000 tokens (`wc -c / 4` estimation) unless explicitly overridden. Soft cap 2500 triggers auto-compression. Editing the template to add content requires checking it stays in budget.
 - **Meta-rule 18 (v2.7 `## Don't` one-line)** — each item ≤ 100 chars, never wraps. Long reasons go to commit msg / ADR / issue; CLAUDE.md keeps only the reference ID.
 - **Meta-rule 19 (v2.7 no auto-execute system installs)** — Phase 2.5 system CLIs are offer-only, Claude Code plugins are offer-only. Project dev deps install only in `--share` mode after batch AUTH. Iron Law 7 in v2.7 explicitly forbids "dev-only blanket exemption" — every install must be on an AUTH'd list.
+- **Meta-rule 20 (v2.8 all PROJECT writes must be reversible)** — write without marker / without manifest entry = §8 SAFETY violation. When adding a new Phase that touches PROJECT files, you must (a) define the marker form (line-based / markdown / JSON), (b) update the manifest schema, (c) update `/onboard --uninstall` to recognize it.
+- **Meta-rule 21 (v2.8 snapshot before first modify)** — Phase 3/4/6/7/8 must snapshot existing PROJECT files to `<state-dir>/onboard-snapshots/<name>.<ISO>.phase<N>.pre` before first modification. No snapshot = no write.
+- **Meta-rule 22 (v2.8 uninstall is single-direction)** — `--uninstall` does NOT use batch AUTH; each removal class gets its own hard AUTH; uninstall must be re-entrant (resumable on mid-way failure).
 
 When in doubt about whether a change requires bumping versions or only an edit, read the relevant Phase section of SKILL.md end-to-end — phases reference Iron Laws by number.
 

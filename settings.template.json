@@ -1,16 +1,19 @@
 {
-  "_comment": "Reference template for .claude/settings.json after /onboard v2.7 in --share mode (Skill form). Note: --share is OPT-IN as of v2.6; default mode is --local-only which uses settings.local.template.json instead. Replace placeholder values per project, then merge into your existing settings.json using Phase 7 deep-merge strategy (independent matcher blocks, never collapse into the same hooks array).",
+  "_comment": "Reference template for .claude/settings.json after /onboard v2.8 in --share mode (Skill form). v2.8: every onboard-written hook block and the env section carry _onboard_managed markers — these are the basis for /onboard --uninstall surgical removal. Standard JSON parsers ignore unknown fields. Note: --share is OPT-IN as of v2.6; default mode is --local-only which uses settings.local.template.json instead. Replace placeholder values per project, then merge into your existing settings.json using Phase 7 deep-merge strategy (independent matcher blocks, never collapse into the same hooks array).",
 
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "packages/legacy-core:vendor",
     "ONBOARD_TOUCHED_LOG": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/touched-files.txt",
     "ONBOARD_STOP_MODE": "light",
-    "ONBOARD_STACKS_FILE": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/stacks.json"
+    "ONBOARD_STACKS_FILE": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/stacks.json",
+    "_onboard_managed_env_keys": ["ONBOARD_FORBIDDEN_PATHS", "ONBOARD_TOUCHED_LOG", "ONBOARD_STOP_MODE", "ONBOARD_STACKS_FILE"]
   },
 
   "hooks": {
     "PreToolUse": [
       {
+        "_onboard_managed": true,
+        "_onboard_version": "2.8",
         "matcher": "Bash",
         "hooks": [
           {
@@ -21,6 +24,8 @@
         ]
       },
       {
+        "_onboard_managed": true,
+        "_onboard_version": "2.8",
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
@@ -33,6 +38,8 @@
     ],
     "PostToolUse": [
       {
+        "_onboard_managed": true,
+        "_onboard_version": "2.8",
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
@@ -45,6 +52,8 @@
     ],
     "Stop": [
       {
+        "_onboard_managed": true,
+        "_onboard_version": "2.8",
         "hooks": [
           {
             "type": "command",
