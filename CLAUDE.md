@@ -12,7 +12,7 @@ This repo is **not** an application — it is the `/onboard` **Claude Code Skill
 - `install.sh` (v2.8, v2.10 redesigned) — universal installer (install/update/uninstall/doctor); uses staging cache at `~/.claude/.cache/onboard-source/` for fast updates; copies `skills/onboard/*` into install target.
 - `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema only.
 - `.claude-plugin/marketplace.json` (v2.9) — Claude Code plugin marketplace catalog at repo root; required for `/plugin marketplace add sdsrss/onboard` to find the plugin.
-- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution (24 assertions); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
+- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution (51 assertions across 2 integration tests: `plugin-install.sh` 24 + `hook-mirror.sh` 27); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
 - `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
@@ -51,7 +51,7 @@ Default-flipping was deliberate: most companies have only a few AI-tool early ad
 
 **Reversibility (v2.8, Iron-grade)** — every PROJECT write is bracketed by markers (line-based files: `# >>> /onboard v<ver> >>>`; markdown: `<!-- >>> -->`; JSON: `_onboard_managed: true`) and tracked in a manifest at `<state-dir>/onboard-manifest.json`. Phase 3/4/6/7/8 snapshot original PROJECT files to `<state-dir>/onboard-snapshots/` BEFORE first modification. `/onboard --uninstall` uses manifest + markers to surgically reverse; users can also choose `restore-snapshot` to recover the pre-onboard state.
 
-**Plugin marketplace install (v2.9)** — repo supports `/plugin marketplace add sdsrss/onboard` via `.claude-plugin/marketplace.json` (catalog) + `.claude-plugin/plugin.json` (canonical schema only). Phase 7 detects install source (Plugin / User-skill / Project-skill / Command) and chooses the correct hook path variable (`${CLAUDE_PLUGIN_ROOT}` / `${HOME}/.claude/skills/onboard/` / `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/` / `${CLAUDE_PROJECT_DIR}/.claude/hooks/`). Critical: `${CLAUDE_PLUGIN_ROOT}` is ephemeral (changes with every plugin update), so onboard's default in plugin mode is to mirror hook scripts to a stable `~/.claude/onboard-runtime/hooks/` location and reference *that* in user settings — not `${CLAUDE_PLUGIN_ROOT}` directly. Plugin updates require `/onboard --update` to refresh the mirror.
+**Plugin marketplace install (v2.9)** — repo supports `/plugin marketplace add sdsrss/onboard` via `.claude-plugin/marketplace.json` (catalog) + `.claude-plugin/plugin.json` (canonical schema only). Phase 7 detects install source (Plugin / User-skill / Project-skill / Command) and chooses the correct hook path variable (`${CLAUDE_PLUGIN_ROOT}` / `${HOME}/.claude/skills/onboard/` / `${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/` / `${CLAUDE_PROJECT_DIR}/.claude/hooks/`). Critical: `${CLAUDE_PLUGIN_ROOT}` is ephemeral (changes with every plugin update), so onboard's default in plugin mode is to invoke `skills/onboard/scripts/mirror-hooks.sh` (v2.10.1 helper; idempotent; writes `.mirror-manifest.json` for diagnostics) to mirror hook scripts to a stable `~/.claude/onboard-runtime/hooks/` location and reference *that* in user settings — not `${CLAUDE_PLUGIN_ROOT}` directly. Plugin updates require `/onboard --update` (or re-running `mirror-hooks.sh` directly) to refresh the mirror.
 
 ## Iron Laws and meta-rules (non-negotiable when editing SKILL.md)
 
@@ -70,7 +70,7 @@ SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules*
 - **Meta-rule 20 (v2.8 all PROJECT writes must be reversible)** — write without marker / without manifest entry = §8 SAFETY violation. When adding a new Phase that touches PROJECT files, you must (a) define the marker form (line-based / markdown / JSON), (b) update the manifest schema, (c) update `/onboard --uninstall` to recognize it.
 - **Meta-rule 21 (v2.8 snapshot before first modify)** — Phase 3/4/6/7/8 must snapshot existing PROJECT files to `<state-dir>/onboard-snapshots/<name>.<ISO>.phase<N>.pre` before first modification. No snapshot = no write.
 - **Meta-rule 22 (v2.8 uninstall is single-direction)** — `--uninstall` does NOT use batch AUTH; each removal class gets its own hard AUTH; uninstall must be re-entrant (resumable on mid-way failure).
-- **Meta-rule 23 (v2.9 plugin paths are ephemeral)** — `${CLAUDE_PLUGIN_ROOT}` changes with every plugin update. Never hard-code it into user settings.json. In plugin install mode, Phase 7 default is to mirror hook scripts to stable `~/.claude/onboard-runtime/hooks/` and reference that mirror. Direct `${CLAUDE_PLUGIN_ROOT}` reference requires explicit user opt-in (accepting short-lived hook failure during plugin updates until Claude Code reloads).
+- **Meta-rule 23 (v2.9 plugin paths are ephemeral; v2.10.1 executable helper)** — `${CLAUDE_PLUGIN_ROOT}` changes with every plugin update. Never hard-code it into user settings.json. In plugin install mode, Phase 7 default is to invoke `skills/onboard/scripts/mirror-hooks.sh` (v2.10.1 — idempotent; writes `.mirror-manifest.json` recording version/source/dest/timestamp) which mirrors hook scripts to stable `~/.claude/onboard-runtime/hooks/`; settings.json references that mirror. Direct `${CLAUDE_PLUGIN_ROOT}` reference requires explicit user opt-in (accepting short-lived hook failure during plugin updates until Claude Code reloads).
 
 When in doubt about whether a change requires bumping versions or only an edit, read the relevant Phase section of SKILL.md end-to-end — phases reference Iron Laws by number.
 
@@ -100,7 +100,7 @@ jq empty < .claude-plugin/plugin.json
 jq empty < .claude-plugin/marketplace.json
 
 # Full end-to-end sandbox test (/plugin marketplace add + /plugin install simulation)
-bash tests/run.sh   # 24 assertions; sandbox under /tmp/onboard-plugin-sandbox; ~/.claude untouched
+bash tests/run.sh   # 51 assertions / 2 tests (plugin-install 24 + hook-mirror 27); sandboxes /tmp/onboard-{plugin,mirror}-sandbox; ~/.claude untouched
 # or a single test: bash tests/run.sh plugin-install
 
 # Make hooks executable (consumers do this; verify mode after edits)

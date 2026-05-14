@@ -112,7 +112,7 @@ rm -rf ~/.claude/skills/onboard
 │   ├── settings.template.json      # share 模式参考
 │   └── settings.local.template.json # local-only 模式参考
 ├── install.sh                      # 通用安装器（curl | bash）
-├── tests/                          # in-repo 沙箱测试（24 assertions, bash tests/run.sh）
+├── tests/                          # in-repo 沙箱测试（51 assertions / 2 tests, bash tests/run.sh）
 └── README.md / CHANGELOG.md / LICENSE / CLAUDE.md
 ```
 
@@ -155,7 +155,7 @@ rm -rf ~/.claude/skills/onboard
 
 为避免 user settings.json 中硬编码该不稳定路径，onboard v2.9 在 plugin 模式下 Phase 7 **默认镜像** hook 脚本到稳定位置 `~/.claude/onboard-runtime/hooks/`，user settings 引用该镜像而非 plugin 缓存。Plugin 升级后用户跑 `/onboard --update` 同步新 hooks 到镜像。
 
-要直接用 `${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh`（不建镜像）可在 `/onboard` 启动时显式选择 "direct" 选项——接受 plugin 升级期间 Claude Code 重载前 hooks 短暂失效的风险。
+要直接用 `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/<name>.sh`（不建镜像）可在 `/onboard` 启动时显式选择 "direct" 选项——接受 plugin 升级期间 Claude Code 重载前 hooks 短暂失效的风险。
 
 ---
 

@@ -26,6 +26,14 @@ fail() { echo "  $(c '1;31' '✗ FAIL') $*"; FAIL=$((FAIL+1)); }
 info() { echo "$(c '1;34' '[step]') $*"; }
 hdr()  { echo ""; echo "$(c '1;36' "═══ $* ═══")"; }
 
+# Portability: GNU coreutils ships `sha256sum`; macOS ships `shasum -a 256`.
+# Output format is identical (`<hash>  <filename>`), so cut -d' ' -f1 works for both.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum
+  else shasum -a 256
+  fi
+}
+
 echo "Source repo:   $SOURCE_REPO"
 echo "Mirror script: $MIRROR_SCRIPT"
 echo "Sandbox root:  $SANDBOX"
@@ -80,9 +88,9 @@ hooks_count=$(jq -r '.hooks | length' "$MANIFEST" 2>/dev/null)
 [ "$hooks_count" = "4" ] && pass "manifest.hooks has 4 entries" || fail "manifest.hooks count != 4 (got $hooks_count)"
 
 hdr "STEP 3: idempotency (same SOURCE, second invocation)"
-HOOKS_SHA_BEFORE=$(find "$DEST" -type f -name '*.sh' | sort | xargs cat | sha256sum | cut -d' ' -f1)
+HOOKS_SHA_BEFORE=$(find "$DEST" -type f -name '*.sh' | sort | xargs cat | sha256_of | cut -d' ' -f1)
 ONBOARD_MIRROR_SOURCE="$SNAP1" ONBOARD_MIRROR_DEST="$DEST" "$MIRROR_SCRIPT" >/dev/null 2>&1
-HOOKS_SHA_AFTER=$(find "$DEST" -type f -name '*.sh' | sort | xargs cat | sha256sum | cut -d' ' -f1)
+HOOKS_SHA_AFTER=$(find "$DEST" -type f -name '*.sh' | sort | xargs cat | sha256_of | cut -d' ' -f1)
 if [ "$HOOKS_SHA_BEFORE" = "$HOOKS_SHA_AFTER" ]; then
   pass "hook content sha256 unchanged on re-run"
 else
