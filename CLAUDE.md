@@ -12,7 +12,7 @@ This repo is **not** an application — it is the `/onboard` **Claude Code Skill
 - `install.sh` (v2.8, v2.10 redesigned) — universal installer (install/update/uninstall/doctor); uses staging cache at `~/.claude/.cache/onboard-source/` for fast updates; copies `skills/onboard/*` into install target.
 - `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema only.
 - `.claude-plugin/marketplace.json` (v2.9) — Claude Code plugin marketplace catalog at repo root; required for `/plugin marketplace add sdsrss/onboard` to find the plugin.
-- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution (51 assertions across 2 integration tests: `plugin-install.sh` 24 + `hook-mirror.sh` 27); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
+- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution / installer round-trip (76 assertions across 3 integration tests: `plugin-install.sh` 24 + `hook-mirror.sh` 27 + `install-roundtrip.sh` 25); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
 - `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
@@ -100,7 +100,7 @@ jq empty < .claude-plugin/plugin.json
 jq empty < .claude-plugin/marketplace.json
 
 # Full end-to-end sandbox test (/plugin marketplace add + /plugin install simulation)
-bash tests/run.sh   # 51 assertions / 2 tests (plugin-install 24 + hook-mirror 27); sandboxes /tmp/onboard-{plugin,mirror}-sandbox; ~/.claude untouched
+bash tests/run.sh   # 76 assertions / 3 tests (plugin-install 24 + hook-mirror 27 + install-roundtrip 25); sandboxes /tmp/onboard-{plugin,mirror,install}-sandbox; ~/.claude untouched
 # or a single test: bash tests/run.sh plugin-install
 
 # Make hooks executable (consumers do this; verify mode after edits)

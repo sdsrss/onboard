@@ -112,7 +112,7 @@ rm -rf ~/.claude/skills/onboard
 │   ├── settings.template.json      # share 模式参考
 │   └── settings.local.template.json # local-only 模式参考
 ├── install.sh                      # 通用安装器（curl | bash）
-├── tests/                          # in-repo 沙箱测试（51 assertions / 2 tests, bash tests/run.sh）
+├── tests/                          # in-repo 沙箱测试（76 assertions / 3 tests, bash tests/run.sh）
 └── README.md / CHANGELOG.md / LICENSE / CLAUDE.md
 ```
 
