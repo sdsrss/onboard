@@ -1398,6 +1398,7 @@ Phase 7 行为同时依两个维度决定：
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "<冒号分隔 confirmed list>",
     "ONBOARD_TOUCHED_LOG": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/touched-files.txt",
+    "ONBOARD_LOG_DIR": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs",
     "ONBOARD_STOP_MODE": "light",
     "ONBOARD_STACKS_FILE": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/stacks.json"
   },
@@ -1435,9 +1436,14 @@ Phase 7 行为同时依两个维度决定：
 }
 ```
 
-`<hook 路径>` 按发布路径决策替换：
-- Skill：`${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks`
-- Command：`${CLAUDE_PROJECT_DIR}/.claude/hooks`
+`<hook 路径>` 按发布路径决策替换（4 种 install 来源对应 4 个路径；与"维度 1"表一一对应）：
+- Plugin（默认 plugin 模式镜像，**推荐**）：`${HOME}/.claude/onboard-runtime/hooks`（通过 `mirror-hooks.sh` 建立的稳定镜像）
+- Plugin（opt-in，直接引用 ephemeral 路径）：`${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks`
+- User-global Skill（`install.sh install`）：`${HOME}/.claude/skills/onboard/hooks`
+- Project-shared Skill（`--share` 模式手动 clone）：`${CLAUDE_PROJECT_DIR}/.claude/skills/onboard/hooks`
+- Command（旧版兼容，动态生成）：`${CLAUDE_PROJECT_DIR}/.claude/hooks`
+
+`ONBOARD_LOG_DIR` 按模式取值（mode-aware）：share = `${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs`；local-only = `${CLAUDE_PROJECT_DIR}/.claude/local-only/onboarding-logs`。hook 用此 env 决定 `stop-lint-*.log` / `post-edit-check.log` 等运行期日志的归宿——hardcode `.claude/onboarding-logs/` 会让 local-only 模式的日志泄漏到 PROJECT 工作树。
 
 ### 多栈配置文件（v2.4 新增）
 
@@ -1562,31 +1568,50 @@ exit 0
 
 ### 示例脚本 3：`post-edit-check.sh`（多栈分发）
 
+> 这里是**示意**版本。生产中按 `hooks/post-edit-check.sh` 为准（含 v2.5 跨平台
+> timeout shim、v2.10.2 mode-aware `ONBOARD_LOG_DIR`）。Command-mode fallback
+> 重生时按 canonical 文件复制，不要按本片段重抄。
+
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$CLAUDE_PROJECT_DIR"
+cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# 跨平台 timeout shim（macOS 默认无 `timeout`，有 `gtimeout`；都没就退化为直接执行）
+if ! command -v timeout >/dev/null 2>&1; then
+  if command -v gtimeout >/dev/null 2>&1; then
+    timeout() { gtimeout "$@"; }
+  else
+    timeout() { shift; "$@"; }
+  fi
+fi
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$FILE_PATH" ] && exit 0
 
 # 记录本轮触及的文件
-mkdir -p "$(dirname "$ONBOARD_TOUCHED_LOG")"
-echo "$FILE_PATH" >> "$ONBOARD_TOUCHED_LOG"
+if [ -n "${ONBOARD_TOUCHED_LOG:-}" ]; then
+  mkdir -p "$(dirname "$ONBOARD_TOUCHED_LOG")"
+  echo "$FILE_PATH" >> "$ONBOARD_TOUCHED_LOG"
+fi
 
-LOG=".claude/onboarding-logs/post-edit-check.log"
+# Mode-aware 日志目录：share = .claude/onboarding-logs；local-only =
+# .claude/local-only/onboarding-logs。fallback 为 share-默认保持向后兼容。
+LOG_DIR="${ONBOARD_LOG_DIR:-.claude/onboarding-logs}"
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/post-edit-check.log"
 
 # 多栈分发：按扩展名找对应 stack 的 format_check_cmd
 if [ -n "${ONBOARD_STACKS_FILE:-}" ] && [ -f "$ONBOARD_STACKS_FILE" ]; then
   EXT=".${FILE_PATH##*.}"
   CMD=$(jq -r --arg ext "$EXT" '
-    .[] | select(.extensions | index($ext)) | .format_check_cmd
-  ' "$ONBOARD_STACKS_FILE" | head -1)
+    .[] | select(.extensions | index($ext)) | .format_check_cmd // empty
+  ' "$ONBOARD_STACKS_FILE" 2>/dev/null | head -1)
 
   if [ -n "$CMD" ] && [ "$CMD" != "null" ]; then
     if ! timeout 10 bash -lc "$CMD" >"$LOG" 2>&1; then
-      echo "Post-edit warning: $EXT format check failed. Stop hook will enforce later." >&2
+      echo "Post-edit warning: $EXT format check failed for $FILE_PATH. Stop hook will enforce later." >&2
     fi
   fi
 fi
@@ -1596,21 +1621,36 @@ exit 0
 
 ### 示例脚本 4：`stop-verify.sh`（多栈分发 + 模式分支）
 
+> 这里是**示意**版本。生产中按 `hooks/stop-verify.sh` 为准（含 v2.5 跨平台 timeout
+> shim、v2.10 strict-mode `format_check_cmd` 分支、v2.10.2 mode-aware
+> `ONBOARD_LOG_DIR`、v2.10.2 空格安全的 array+`printf %q` 文件名分发）。Command-mode
+> fallback 重生时按 canonical 文件复制，不要按本片段重抄。
+
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$CLAUDE_PROJECT_DIR"
+cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# 跨平台 timeout shim（同 post-edit-check.sh）
+if ! command -v timeout >/dev/null 2>&1; then
+  if command -v gtimeout >/dev/null 2>&1; then
+    timeout() { gtimeout "$@"; }
+  else
+    echo "stop-verify: no timeout/gtimeout found, running without time limits" >&2
+    timeout() { shift; "$@"; }
+  fi
+fi
 
 MODE="${ONBOARD_STOP_MODE:-light}"
 STACKS_FILE="${ONBOARD_STACKS_FILE:-}"
 TOUCHED_LOG="${ONBOARD_TOUCHED_LOG:-}"
 
 # 防死循环
-INPUT=$(cat || echo '{}')
-ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
+INPUT=$(cat 2>/dev/null || echo '{}')
+ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
 [ "$ACTIVE" = "true" ] && exit 0
 
-LOG_DIR=".claude/onboarding-logs"
+LOG_DIR="${ONBOARD_LOG_DIR:-.claude/onboarding-logs}"
 mkdir -p "$LOG_DIR"
 FAILED=()
 
@@ -1620,13 +1660,16 @@ if [ -z "$STACKS_FILE" ] || [ ! -f "$STACKS_FILE" ]; then
   exit 0
 fi
 
-TOUCHED_FILES=""
+# NL-safe 读：把 touched 文件读进数组（空格文件名不会被 word-split 拆碎）
+TOUCHED_FILES=()
 if [ -n "$TOUCHED_LOG" ] && [ -f "$TOUCHED_LOG" ]; then
-  TOUCHED_FILES=$(sort -u "$TOUCHED_LOG" | tr '\n' ' ')
+  while IFS= read -r line; do
+    [ -n "$line" ] && TOUCHED_FILES+=("$line")
+  done < <(sort -u "$TOUCHED_LOG")
 fi
 
 # 没改任何文件且非 strict 模式 → 放行
-if [ -z "$TOUCHED_FILES" ] && [ "$MODE" != "strict" ]; then
+if [ "${#TOUCHED_FILES[@]}" -eq 0 ] && [ "$MODE" != "strict" ]; then
   exit 0
 fi
 
@@ -1634,41 +1677,55 @@ fi
 STACK_IDS=$(jq -r '.[].id' "$STACKS_FILE")
 for stack_id in $STACK_IDS; do
   EXTS=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .extensions[]' "$STACKS_FILE")
-  LINT_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .lint_cmd' "$STACKS_FILE")
-  TC_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .typecheck_cmd' "$STACKS_FILE")
+  LINT_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .lint_cmd // empty' "$STACKS_FILE")
+  TC_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .typecheck_cmd // empty' "$STACKS_FILE")
+  FMT_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .format_check_cmd // empty' "$STACKS_FILE")
 
-  # 筛出本栈的 touched files
-  STACK_FILES=""
-  for f in $TOUCHED_FILES; do
+  # 筛出本栈的 touched files；用 printf %q 对每条 quote，跨 bash -lc 边界保形
+  STACK_FILES_QUOTED=""
+  HAVE_STACK_FILES=0
+  for f in "${TOUCHED_FILES[@]}"; do
     for ext in $EXTS; do
-      [[ "$f" == *"$ext" ]] && STACK_FILES="$STACK_FILES $f"
+      if [[ "$f" == *"$ext" ]]; then
+        STACK_FILES_QUOTED+=" $(printf '%q' "$f")"
+        HAVE_STACK_FILES=1
+        break
+      fi
     done
   done
 
   case "$MODE" in
     light)
-      [ -z "$STACK_FILES" ] && continue
+      [ "$HAVE_STACK_FILES" -eq 0 ] && continue
       if [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD $STACK_FILES" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 || FAILED+=("lint:$stack_id")
+        timeout 30 bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 || FAILED+=("lint:$stack_id")
       fi
       ;;
     standard)
-      if [ -n "$STACK_FILES" ] && [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD $STACK_FILES" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 || FAILED+=("lint:$stack_id")
+      if [ "$HAVE_STACK_FILES" -eq 1 ] && [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
+        timeout 30 bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 || FAILED+=("lint:$stack_id")
       fi
       if [ -n "$TC_CMD" ] && [ "$TC_CMD" != "null" ]; then
         timeout 45 bash -lc "$TC_CMD" >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 || FAILED+=("typecheck:$stack_id")
       fi
       ;;
     strict)
-      [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ] && (timeout 30 bash -lc "$LINT_CMD" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 || FAILED+=("lint:$stack_id"))
-      [ -n "$TC_CMD" ]   && [ "$TC_CMD" != "null" ]   && (timeout 45 bash -lc "$TC_CMD"   >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 || FAILED+=("typecheck:$stack_id"))
+      # strict 跑全量 lint + typecheck + format:check
+      if [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
+        timeout 30 bash -lc "$LINT_CMD" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 || FAILED+=("lint:$stack_id")
+      fi
+      if [ -n "$TC_CMD" ] && [ "$TC_CMD" != "null" ]; then
+        timeout 45 bash -lc "$TC_CMD" >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 || FAILED+=("typecheck:$stack_id")
+      fi
+      if [ -n "$FMT_CMD" ] && [ "$FMT_CMD" != "null" ]; then
+        timeout 30 bash -lc "$FMT_CMD" >"$LOG_DIR/stop-format-$stack_id.log" 2>&1 || FAILED+=("format:$stack_id")
+      fi
       ;;
   esac
 done
 
 # 清理触及清单
-: > "$TOUCHED_LOG"
+[ -n "$TOUCHED_LOG" ] && [ -f "$TOUCHED_LOG" ] && : > "$TOUCHED_LOG"
 
 if [ ${#FAILED[@]} -gt 0 ]; then
   REASON="Stop blocked [mode=$MODE]: failing checks — ${FAILED[*]}. See $LOG_DIR/"
@@ -1984,6 +2041,7 @@ D11 claude.md tokens:     ✓ ok (1820 < 2500)
 D12 line format:          ✓ ok
 D13 plugin drift:         ✗ drifted — code-graph-mcp approved but not installed
 D14 install drift:        ✓ ok [share only]
+D15 uninstall reversible: ✓ ok (manifest + 3 pre-modify snapshots present)
 
 Suggested actions:
   D2 → run `/onboard --update` to re-detect stacks
