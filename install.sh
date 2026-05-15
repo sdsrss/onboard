@@ -199,6 +199,14 @@ do_uninstall() {
 
   case "$ans" in
     y|Y|yes|YES)
+      # §8 SAFETY: refuse to rm on empty or root-ish paths even though set -u +
+      # the case-construct above already make these unreachable in practice.
+      # Explicit guard makes the dangerous call auditable on its own line.
+      for victim in "$INSTALL_DIR" "$STAGE_DIR"; do
+        case "$victim" in
+          ""|/|/.|/..) err "refusing rm -rf on suspect path: '$victim'"; exit 2 ;;
+        esac
+      done
       rm -rf "$INSTALL_DIR"
       rm -rf "$STAGE_DIR"
       ok "/onboard global skill files removed"
