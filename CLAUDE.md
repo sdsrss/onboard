@@ -12,7 +12,7 @@ This repo is **not** an application — it is the `/onboard` **Claude Code Skill
 - `install.sh` (v2.8, v2.10 redesigned) — universal installer (install/update/uninstall/doctor); uses staging cache at `~/.claude/.cache/onboard-source/` for fast updates; copies `skills/onboard/*` into install target.
 - `.claude-plugin/plugin.json` (v2.8, v2.9 schema-corrected) — Claude Code plugin manifest, canonical schema only.
 - `.claude-plugin/marketplace.json` (v2.9) — Claude Code plugin marketplace catalog at repo root; required for `/plugin marketplace add sdsrss/onboard` to find the plugin.
-- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution / installer round-trip (76 assertions across 3 integration tests: `plugin-install.sh` 24 + `hook-mirror.sh` 27 + `install-roundtrip.sh` 25); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
+- `tests/run.sh` + `tests/integration/*.sh` — in-repo sandbox tests for plugin install / hook execution / installer round-trip / SKILL.md link consistency (87 assertions across 4 integration tests: `plugin-install.sh` 24 + `hook-mirror.sh` 29 + `install-roundtrip.sh` 25 + `skillmd-links.sh` 9); run via `bash tests/run.sh`. Persisted post-v2.10 from the prior `/tmp/onboard-plugin-test.sh`.
 - `README.md` — install + usage guide for end users.
 - `CHANGELOG.md` — version history.
 
@@ -55,7 +55,7 @@ Default-flipping was deliberate: most companies have only a few AI-tool early ad
 
 ## Iron Laws and meta-rules (non-negotiable when editing SKILL.md)
 
-SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **19 meta-rules** (v2.6 added 13–16; v2.7 added 17–19). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
+SKILL.md §0 defines **19 Iron Laws** and §"元规则" defines **23 meta-rules** (v2.6 added 13–16; v2.7 added 17–19; v2.8 added 20–22; v2.9 added 23). They are not advisory — they have load-bearing references throughout the spec. Editing rules to keep in mind:
 
 - **Iron Law 15 (Exit code OR JSON, never both)** — every hook script must pick one output protocol. Mixing exit 2 with stdout JSON makes Claude Code ignore the JSON. Existing hooks always use `exit 0 + stdout JSON`.
 - **Iron Law 19 (warn-only must exit 0)** — checks marked deferred (e.g. preexisting typecheck violations) MUST output warnings via stderr but never return non-zero, or they block `git push`.
@@ -100,7 +100,7 @@ jq empty < .claude-plugin/plugin.json
 jq empty < .claude-plugin/marketplace.json
 
 # Full end-to-end sandbox test (/plugin marketplace add + /plugin install simulation)
-bash tests/run.sh   # 76 assertions / 3 tests (plugin-install 24 + hook-mirror 27 + install-roundtrip 25); sandboxes /tmp/onboard-{plugin,mirror,install}-sandbox; ~/.claude untouched
+bash tests/run.sh   # 87 assertions / 4 tests (plugin-install 24 + hook-mirror 29 + install-roundtrip 25 + skillmd-links 9); sandboxes /tmp/onboard-{plugin,mirror,install}-sandbox; ~/.claude untouched
 # or a single test: bash tests/run.sh plugin-install
 
 # Make hooks executable (consumers do this; verify mode after edits)

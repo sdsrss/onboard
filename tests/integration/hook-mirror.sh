@@ -131,6 +131,21 @@ else
   pass "exits non-zero when source missing required hook"
 fi
 
+# DEST creation failure → friendly error (path collides with an existing regular file)
+BLOCKER="$SANDBOX/blocker-file"
+touch "$BLOCKER"
+DEST_ERR_LOG="$SANDBOX/dest-err.log"
+if ONBOARD_MIRROR_SOURCE="$SNAP1" ONBOARD_MIRROR_DEST="$BLOCKER/hooks" "$MIRROR_SCRIPT" >/dev/null 2>"$DEST_ERR_LOG"; then
+  fail "should exit non-zero when DEST creation fails"
+else
+  pass "exits non-zero when DEST creation fails"
+fi
+if grep -q "could not create mirror dest directory" "$DEST_ERR_LOG"; then
+  pass "DEST failure prints friendly error message"
+else
+  fail "DEST failure missing friendly error (got: $(cat "$DEST_ERR_LOG"))"
+fi
+
 hdr "FINAL REPORT"
 echo "  pass: $PASS"
 echo "  fail: $FAIL"

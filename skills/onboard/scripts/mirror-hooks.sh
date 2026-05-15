@@ -67,7 +67,13 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 1
 fi
 
-mkdir -p "$DEST"
+if ! mkdir -p "$DEST" 2>/dev/null; then
+  err "could not create mirror dest directory: $DEST"
+  err "  parent may be unwritable, path may collide with a regular file,"
+  err "  or filesystem may be read-only."
+  err "  override with ONBOARD_MIRROR_DEST=<path> (default: \$HOME/.claude/onboard-runtime/hooks)"
+  exit 1
+fi
 
 mirrored=0
 for h in "${REQUIRED_HOOKS[@]}"; do
@@ -78,7 +84,6 @@ done
 
 MANIFEST_DIR="$(dirname "$DEST")"
 MANIFEST="$MANIFEST_DIR/.mirror-manifest.json"
-mkdir -p "$MANIFEST_DIR"
 
 cat > "$MANIFEST" <<EOF
 {
