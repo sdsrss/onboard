@@ -4,9 +4,10 @@
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "packages/legacy-core:vendor",
     "ONBOARD_TOUCHED_LOG": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/touched-files.txt",
+    "ONBOARD_LOG_DIR": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs",
     "ONBOARD_STOP_MODE": "light",
     "ONBOARD_STACKS_FILE": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/stacks.json",
-    "_onboard_managed_env_keys": ["ONBOARD_FORBIDDEN_PATHS", "ONBOARD_TOUCHED_LOG", "ONBOARD_STOP_MODE", "ONBOARD_STACKS_FILE"]
+    "_onboard_managed_env_keys": ["ONBOARD_FORBIDDEN_PATHS", "ONBOARD_TOUCHED_LOG", "ONBOARD_LOG_DIR", "ONBOARD_STOP_MODE", "ONBOARD_STACKS_FILE"]
   },
 
   "hooks": {

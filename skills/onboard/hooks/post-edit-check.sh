@@ -12,6 +12,11 @@
 # Env:
 #   ONBOARD_TOUCHED_LOG    — path to RUNTIME touched-files log
 #   ONBOARD_STACKS_FILE    — path to JSON describing stacks (see SKILL.md Phase 7)
+#   ONBOARD_LOG_DIR        — RUNTIME log directory; differs by mode
+#                             (share: .claude/onboarding-logs / local-only:
+#                             .claude/local-only/onboarding-logs). Falling back
+#                             to the share path would leak local-only state
+#                             into the PROJECT working tree.
 
 set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
@@ -35,7 +40,7 @@ if [ -n "${ONBOARD_TOUCHED_LOG:-}" ]; then
   echo "$FILE_PATH" >> "$ONBOARD_TOUCHED_LOG"
 fi
 
-LOG_DIR=".claude/onboarding-logs"
+LOG_DIR="${ONBOARD_LOG_DIR:-.claude/onboarding-logs}"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/post-edit-check.log"
 

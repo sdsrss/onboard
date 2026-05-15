@@ -37,7 +37,10 @@ INPUT=$(cat 2>/dev/null || echo '{}')
 ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
 [ "$ACTIVE" = "true" ] && exit 0
 
-LOG_DIR=".claude/onboarding-logs"
+# ONBOARD_LOG_DIR is mode-aware (set by settings.template.json /
+# settings.local.template.json); fallback matches the share-mode default for
+# backwards compatibility with v2.10.1-and-earlier installs that predate this env.
+LOG_DIR="${ONBOARD_LOG_DIR:-.claude/onboarding-logs}"
 mkdir -p "$LOG_DIR"
 FAILED=()
 
@@ -47,13 +50,18 @@ if [ -z "$STACKS_FILE" ] || [ ! -f "$STACKS_FILE" ]; then
   exit 0
 fi
 
-# Collect touched files (deduped); empty in non-strict mode → fast path
-TOUCHED_FILES=""
+# Collect touched files (deduped) into a NUL-safe array — read NL-delimited so
+# filenames containing whitespace survive intact. Earlier versions space-joined
+# the list and word-split it back, which corrupted `src/has space.ts` into two
+# bogus paths (`has`, `space.ts`) before lint ever saw it.
+TOUCHED_FILES=()
 if [ -n "$TOUCHED_LOG" ] && [ -f "$TOUCHED_LOG" ]; then
-  TOUCHED_FILES=$(sort -u "$TOUCHED_LOG" | tr '\n' ' ')
+  while IFS= read -r line; do
+    [ -n "$line" ] && TOUCHED_FILES+=("$line")
+  done < <(sort -u "$TOUCHED_LOG")
 fi
 
-if [ -z "$TOUCHED_FILES" ] && [ "$MODE" != "strict" ]; then
+if [ "${#TOUCHED_FILES[@]}" -eq 0 ] && [ "$MODE" != "strict" ]; then
   exit 0
 fi
 
@@ -65,29 +73,35 @@ for stack_id in $STACK_IDS; do
   TC_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .typecheck_cmd // empty' "$STACKS_FILE")
   FMT_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .format_check_cmd // empty' "$STACKS_FILE")
 
-  # Filter touched files belonging to this stack (by extension)
-  STACK_FILES=""
-  for f in $TOUCHED_FILES; do
+  # Filter touched files belonging to this stack (by extension).
+  # Quote each match with %q so paths with whitespace / shell metachars stay
+  # intact when handed to `bash -lc "$LINT_CMD $STACK_FILES_QUOTED"`.
+  STACK_FILES_QUOTED=""
+  HAVE_STACK_FILES=0
+  for f in "${TOUCHED_FILES[@]}"; do
     for ext in $EXTS; do
-      [[ "$f" == *"$ext" ]] && STACK_FILES="$STACK_FILES $f"
+      if [[ "$f" == *"$ext" ]]; then
+        STACK_FILES_QUOTED+=" $(printf '%q' "$f")"
+        HAVE_STACK_FILES=1
+        break
+      fi
     done
   done
-  STACK_FILES="${STACK_FILES# }"
 
   case "$MODE" in
     light)
       # Incremental lint only
-      [ -z "$STACK_FILES" ] && continue
+      [ "$HAVE_STACK_FILES" -eq 0 ] && continue
       if [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD $STACK_FILES" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
+        timeout 30 bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
           || FAILED+=("lint:$stack_id")
       fi
       ;;
 
     standard)
       # Incremental lint + full typecheck
-      if [ -n "$STACK_FILES" ] && [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD $STACK_FILES" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
+      if [ "$HAVE_STACK_FILES" -eq 1 ] && [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
+        timeout 30 bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
           || FAILED+=("lint:$stack_id")
       fi
       if [ -n "$TC_CMD" ] && [ "$TC_CMD" != "null" ]; then

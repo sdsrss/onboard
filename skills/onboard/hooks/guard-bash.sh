@@ -14,11 +14,15 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 [ -z "$COMMAND" ] && exit 0
 
-# Dangerous command patterns (extend cautiously; each addition is a deny)
+# Dangerous command patterns (extend cautiously; each addition is a deny).
+# The rm patterns are anchored so the deletion TARGET is exactly the root /
+# (or ~ / $HOME) — without anchoring, `rm -rf /` matches as a substring of
+# `rm -rf /tmp/foo`, which is a false-positive that blocks legitimate cleanup.
+# `[;&|]` end-marker also catches chained forms like `rm -rf / && ...`.
 BLOCK_PATTERNS=(
-  'rm -rf /'
-  'rm -rf ~'
-  'rm -rf \$HOME'
+  'rm[[:space:]]+-rf[[:space:]]+/[[:space:]]*($|[;&|])'
+  'rm[[:space:]]+-rf[[:space:]]+~[[:space:]]*($|[;&|])'
+  'rm[[:space:]]+-rf[[:space:]]+\$HOME[[:space:]]*($|[;&|])'
   'chmod -R 777'
   'git push --force.*origin (main|master)'
   '> *\.env'

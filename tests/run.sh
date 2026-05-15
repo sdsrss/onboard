@@ -70,5 +70,5 @@ echo "$(c '1;32' '✓ all tests passed')"
 
 # §8 V4: dispose sandbox artifacts on success unless caller opts out
 if [ "${ONBOARD_TEST_KEEP_SANDBOX:-0}" != "1" ]; then
-  rm -rf /tmp/onboard-plugin-sandbox /tmp/onboard-mirror-sandbox /tmp/onboard-install-sandbox 2>/dev/null || true
+  rm -rf /tmp/onboard-plugin-sandbox /tmp/onboard-mirror-sandbox /tmp/onboard-install-sandbox /tmp/onboard-hook-sandbox 2>/dev/null || true
 fi
