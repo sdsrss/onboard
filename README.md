@@ -456,14 +456,18 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.10.1**。
+当前版本：**v2.10.2**。
 
-**v2.10.1 改进**（dev infra hardening，不破坏兼容）：
-- 新增 `skills/onboard/scripts/mirror-hooks.sh` helper：plugin 模式默认调用，把 hooks 从 ephemeral `${CLAUDE_PLUGIN_ROOT}/skills/onboard/hooks/` 镜像到稳定 `${HOME}/.claude/onboard-runtime/hooks/`；写 `.mirror-manifest.json` 用于诊断；plugin 升级后重跑刷新
-- 沙箱测试入库 `tests/`（24 + 27 = 51 assertions），`bash tests/run.sh` PR 前回归
-- 删除 `scripts/lifecycle/*.sh`（v2.8 误判为 plugin lifecycle hook 的 orphan 脚本，install.sh 已自带全部逻辑）
-- SKILL.md Phase 7 plugin 模式路径修正（v2.10 layout 漏改的下游引用补齐）
-- `install.sh do_uninstall` 扩展手动清理 recipe
+**v2.10.2 改进**（v2.10.1 后全仓审计找到的 10 条 P-B fixes，2 条 HIGH / 4 MED / 4 LOW，不破坏兼容）：
+- **HIGH**：`guard-bash.sh` deny 模式从子串改为锚定 — 之前 `rm -rf /` 作子串匹配把所有 `rm -rf /<subpath>`（如 `/tmp/foo`、`/var/log/old`）一起误拒；新版仅在 `/` / `~` / `$HOME` 是删除目标本体或链式起始时 deny
+- **HIGH**：新增 `ONBOARD_LOG_DIR` env，`post-edit-check.sh` / `stop-verify.sh` 用它决定 `stop-lint-*.log` / `post-edit-check.log` 归宿。之前硬编码 `.claude/onboarding-logs/` 在 local-only 模式下泄漏到 PROJECT 工作树（meta-rule 13 违规）
+- **MED**：`stop-verify.sh` 改用数组 + `printf %q` 跨 `bash -lc` 边界传文件名 — 之前 space-join + word-split 会把 `src/has space.ts` 拆成 `has` / `space.ts` 两个错误参数
+- **MED**：SKILL.md 内嵌 `示例脚本 3/4` 同步到 canonical hooks/*.sh（含 v2.5 跨平台 timeout、v2.10 strict-mode `FMT_CMD`、v2.10.2 `ONBOARD_LOG_DIR` + 空格安全）；加 canonical pointer 防 Command-mode fallback 退化
+- **MED**：Doctor mode sample output 补 D15（uninstall reversibility）；Phase 7 hook 路径替换表从 2 项扩到 5 项覆盖所有 install 来源
+- **LOW**：settings 模板 `_onboard_version` 8 处从 `2.8` 同步到 `2.10.2`；4 个 test 脚本 git index `100644 → 100755`；`install.sh do_uninstall` 加 path sanity guard
+- 新增 `tests/integration/hook-behavior.sh`（22 assertions）锁住 P-B1/B2/B4 不复发；`tests/run.sh` 5 个 test / 109 assertions / 0 fail
+
+**从 v2.10.1 升级**：纯补丁，无 schema / 行为破坏。已 onboarded 项目需要把 `ONBOARD_LOG_DIR` 加入 settings.local.json / settings.json env 块（local-only 模式尤其需要，否则日志仍写到 share 路径）— 跑 `/onboard --update` 自动迁移；或手动从模板 `skills/onboard/settings*.template.json` 复制对应那行。
 
 **从 v2.10 升级**：不破坏兼容；plugin 模式用户下次 `/onboard --update` 会自动从 prose-only 镜像策略切换到调用 `mirror-hooks.sh` helper
 

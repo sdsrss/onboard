@@ -1,7 +1,7 @@
 {
   "name": "onboard",
   "description": "Legacy project onboarding protocol for Claude Code. Analyzes the project, generates a compact CLAUDE.md, configures hooks, manages forbidden zones, aligns CI, and batches install plan.",
-  "version": "2.10.1",
+  "version": "2.10.2",
   "author": {
     "name": "sds"
   },

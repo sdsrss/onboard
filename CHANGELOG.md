@@ -4,7 +4,50 @@
 
 ---
 
-## v2.10.1 — v2.10 后 dev infra 打磨（current）
+## v2.10.2 — v2.10.1 后全仓审计（current）
+
+10 条 P-B fixes（2 HIGH / 4 MED / 4 LOW），均源自 2026-05-15 全面审计；不破坏兼容。
+
+### Fixed
+
+- **P-B1 (HIGH)**：`hooks/guard-bash.sh` deny 模式作子串匹配致所有 `rm -rf /<subpath>` 误拒
+  - 错例：`rm -rf /tmp/foo` / `rm -rf /var/log/old` / `rm -rf ~/.cache/foo` / `rm -rf $HOME/cache` 都被拦
+  - 原因：grep -qE `'rm -rf /'` 在 `rm -rf /tmp/foo` 字符串内匹配为子串 → 触发 deny
+  - 修复：锚定为 `'rm[[:space:]]+-rf[[:space:]]+/[[:space:]]*($|[;&|])'` 三个 root-target 模式（`/`、`~`、`$HOME`），只在删除目标本体或链式起始（`/ && ...`、`/;...`）时 deny；正常 subpath 删除全部放行
+- **P-B2 (HIGH)**：`post-edit-check.sh` / `stop-verify.sh` 硬编码 `LOG_DIR=".claude/onboarding-logs"` 在 local-only 模式下泄漏日志到 PROJECT 工作树
+  - meta-rule 13 + Mode model 不变量"local-only 不动 PROJECT" 违规：模板已正确路由 `ONBOARD_TOUCHED_LOG` / `ONBOARD_STACKS_FILE` 到 `.claude/local-only/onboarding-logs/`，但 hook 自己写 `stop-lint-*.log` / `post-edit-check.log` 仍用 share 默认路径
+  - 修复：引入 `ONBOARD_LOG_DIR` env；两个模板分别设为 mode-aware 路径并注册到 `_onboard_managed_env_keys`；hook fallback 到 share 默认保持 backwards 兼容
+- **P-B4 (MED)**：`stop-verify.sh` 文件名含空格 word-splitting bug
+  - 错例：`src/has space.ts` 被 `tr '\n' ' '` + `for f in $TOUCHED_FILES` 拆成 `has` + `space.ts` 两个错误参数喂给 lint
+  - 修复：改用数组读 + `printf %q` 跨 `bash -lc` 边界保形
+
+### Changed
+
+- **P-B3 (MED)** SKILL.md `示例脚本 3/4`（Phase 7）同步到 canonical `hooks/*.sh`：补 v2.5 跨平台 timeout shim、v2.10 strict-mode `FMT_CMD` 分支、v2.10.2 `ONBOARD_LOG_DIR` 和空格安全的 array+`printf %q` 文件名分发；脚本顶部加 canonical pointer 注释，防 Command-mode fallback 按 spec 重生时退化到老版本
+- **P-B5 (MED)** Doctor mode sample output 补 D15（uninstall reversibility）；定义表里有 D1-D15，sample 只列到 D14 导致 consumer Claude 按 sample 输出永远漏 D15
+- **P-B6 (MED)** SKILL.md `<hook 路径>` 替换表从 2 项（Skill / Command）扩到 5 项（Plugin via mirror / Plugin direct opt-in / User-global Skill / Project-shared Skill / Command），与上方"install 来源 × 路径"表对齐
+- **P-B7/B8 (LOW)** settings 模板 `_onboard_version` 8 处从 `"2.8"` 同步到 `"2.10.2"`；两个模板顶部 `_comment` 字段也带上 v2.10.2 引用 + ONBOARD_LOG_DIR 描述
+- **P-B9 (LOW)** `tests/run.sh` / `tests/integration/{plugin-install,skillmd-links,hook-behavior}.sh` 从 git index `100644 → 100755`，与 `hook-mirror.sh` / `install-roundtrip.sh` 已有的 100755 对齐；实际不影响 `bash <file>` 调用但文件 mode 一致性以及 CLAUDE.md 文档 claim
+- **P-B10 (LOW)** `install.sh do_uninstall` rm -rf 前加 `case` guard 拒绝空 / `/` / `/.` / `/..` 这类可疑值；`set -u` 之前已隐式保护，但 §8 SAFETY 严格读要求显式 validate-VAR-before-rm
+
+### Added
+
+- `tests/integration/hook-behavior.sh`（22 assertions）锁住 P-B1/B2/B4 不复发：
+  - 6 条 guard-bash allow-list（legitimate subpath 删除）
+  - 6 条 guard-bash deny-list（真危险）
+  - 4 条 guard-bash 其他模式（chmod 777 / force-push / curl|sh / >.env）
+  - 6 条 stop-verify + post-edit-check 的 `ONBOARD_LOG_DIR` 路由 + 空格安全
+- `tests/run.sh` 测试数 4 → 5，总断言 87 → 109，sandbox 清理增加 `/tmp/onboard-hook-sandbox`
+
+### 升级路径
+
+- 纯补丁，无 schema 破坏
+- 已 onboarded 项目应跑 `/onboard --update` 把 `ONBOARD_LOG_DIR` 加进 settings env；或手动从模板复制对应一行
+- v2.10.1 用户直接 `install.sh update`
+
+---
+
+## v2.10.1 — v2.10 后 dev infra 打磨
 
 ### Added
 
