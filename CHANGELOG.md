@@ -4,7 +4,45 @@
 
 ---
 
-## v2.11.1 — code-review follow-up patch（current）
+## v2.11.2 — release-preflight 维护脚本（current）
+
+把 `feedback_cross_cutting_grep` + `feedback_git_index_chmod_on_new_sh` + `feedback_release_commit_staging` + `scripts/verify-counts.sh` 四类 pre-commit hygiene 合成单一 `scripts/release-preflight.sh`。纯维护工具，无 /onboard runtime behavior 变化。
+
+### Added
+
+- **`scripts/release-preflight.sh`**（~210 行 bash）— `git add -A` 后 `git commit` 前跑一次，4 步：
+  1. **Version-bump completeness** — positive check 7 个 pinned 位置（plugin.json / marketplace.json / SKILL.md title / 2 个 settings template `_onboard_version` / CLAUDE.md 当前版本 / README.md 当前版本）都已显示 NEW_VERSION。避免了对 OLD_VERSION 直接 grep 产生的 historical-fact false positive 漩涡
+  2. **chmod +x on staged-new `.sh`** — 自动 `git update-index --chmod=+x $f` 对所有 staged 新建 `.sh` 文件，解决 `feedback_git_index_chmod_on_new_sh` 三次连续 followup commit 的 root cause
+  3. **verify-counts.sh** — propagate exit；blocking
+  4. **Staged-file sanity** — warn on working-tree-only edits + untracked files（不进 commit 静默丢失）
+  - **退出码契约**：0 = 可 commit；1 = blocking drift（pinning 不全 / counts 漂移）；2 = 调用错
+  - 用法：`bash scripts/release-preflight.sh [OLD_VERSION] [NEW_VERSION]`；裸跑自动从 `plugin.json` 和 CHANGELOG.md 推
+- CLAUDE.md inventory 一行更新提到 `release-preflight.sh`
+
+### Changed
+
+- memory `feedback_git_index_chmod_on_new_sh.md`：尾段从"建议 future script"降级为"v2.11.2 已实现该 script"的指针 + 保留 WHY 解释段供未来维护者参考
+
+### Tests
+
+- 仍 9 个 integration tests / 150 assertions / 0 fail
+- `bash scripts/verify-counts.sh`：全对齐
+- `bash scripts/release-preflight.sh`：本 release 自我验证 PASS（version-bump 7/7 + chmod 1 file +x + verify-counts OK + sanity 无 warning）
+
+### Known limits
+
+- v2.11.0 known limits 全部沿用：plugin 端到端 dogfood + `=skill` 沙箱 jq 跑通仍未做（v2.12 batch）
+- release-preflight.sh 的 OLD_VERSION grep（step 1b）目前是 informational warning，不阻塞——本身就难自动判断 "historical fact" vs "drift"。后续如积累足够 false-positive pattern 再 tighten
+
+### 升级路径
+
+- 维护脚本类 patch，无 schema / 行为变化
+- v2.11.1 → v2.11.2：`bash install.sh update`；已 onboarded 项目无需重跑
+- 仓库维护者第一次跑：`bash scripts/release-preflight.sh` 即可
+
+---
+
+## v2.11.1 — code-review follow-up patch
 
 4 条 P-A-followup fixes（reviewer-surfaced Important 全收）+ 1 个新维护脚本。源自 v2.11.0 ship 后 `superpowers:requesting-code-review` 跑出的发现，无 schema 破坏，无 user-facing flag 变化。
 

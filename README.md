@@ -456,7 +456,7 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.11.1**。
+当前版本：**v2.11.2**。
 
 **v2.11.0 改进**（8 条 P-A items，4 HIGH / 3 MED / 1 LOW；minor bump，Δ-contract additive 向后兼容）：
 - **HIGH P-A1**：CC plugin as target project — Phase 1 探测矩阵 + Phase 1 forbidden zone candidate + Phase 1.7 A8 + Phase 3 模板新增 conditional `## Plugin` 节。onboard 自己作为 target 时可正确识别 `.claude-plugin/plugin.json` + `.mcp.json` + components 自动发现层
