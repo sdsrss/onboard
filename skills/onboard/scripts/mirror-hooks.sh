@@ -75,17 +75,43 @@ if ! mkdir -p "$DEST" 2>/dev/null; then
   exit 1
 fi
 
+# Idempotent fast path (v2.11.3): cmp -s before cp; skip both copy and manifest
+# rewrite when source content and version match what's already at dest. Makes
+# the "no-op re-run" case observable in the log (default Phase 7 invocation
+# fires this script every onboard run, so the savings add up).
 mirrored=0
+unchanged=0
 for h in "${REQUIRED_HOOKS[@]}"; do
-  cp "$SOURCE/$h" "$DEST/$h"
-  chmod +x "$DEST/$h"
-  mirrored=$((mirrored+1))
+  if [ -f "$DEST/$h" ] && cmp -s "$SOURCE/$h" "$DEST/$h"; then
+    # Content matches; ensure +x is still set without touching mtime.
+    [ -x "$DEST/$h" ] || chmod +x "$DEST/$h"
+    unchanged=$((unchanged+1))
+  else
+    cp "$SOURCE/$h" "$DEST/$h"
+    chmod +x "$DEST/$h"
+    mirrored=$((mirrored+1))
+  fi
 done
 
 MANIFEST_DIR="$(dirname "$DEST")"
 MANIFEST="$MANIFEST_DIR/.mirror-manifest.json"
 
-cat > "$MANIFEST" <<EOF
+# Skip manifest rewrite when nothing changed AND the prior manifest already
+# records the current source + version. mirrored_at left stale on purpose —
+# that field reflects "last actual mirror operation", not "last invocation".
+SKIP_MANIFEST=0
+if [ "$mirrored" -eq 0 ] && [ -f "$MANIFEST" ]; then
+  prev_source=$(jq -r '.source // empty' "$MANIFEST" 2>/dev/null || echo "")
+  prev_version=$(jq -r '.version // empty' "$MANIFEST" 2>/dev/null || echo "")
+  if [ "$prev_source" = "$SOURCE" ] && [ "$prev_version" = "$VERSION" ]; then
+    SKIP_MANIFEST=1
+  fi
+fi
+
+if [ "$SKIP_MANIFEST" -eq 1 ]; then
+  ok "no changes — all $unchanged hooks already current (v$VERSION) at $DEST"
+else
+  cat > "$MANIFEST" <<EOF
 {
   "version": "$VERSION",
   "source": "$SOURCE",
@@ -94,6 +120,10 @@ cat > "$MANIFEST" <<EOF
   "hooks": ["guard-bash.sh", "guard-edit.sh", "post-edit-check.sh", "stop-verify.sh"]
 }
 EOF
-
-ok "mirrored $mirrored hooks (v$VERSION) → $DEST"
-info "manifest: $MANIFEST"
+  if [ "$mirrored" -gt 0 ]; then
+    ok "mirrored $mirrored hooks (v$VERSION) → $DEST ($unchanged unchanged)"
+  else
+    ok "refreshed manifest (v$VERSION) → $DEST (all $unchanged hooks already current)"
+  fi
+  info "manifest: $MANIFEST"
+fi

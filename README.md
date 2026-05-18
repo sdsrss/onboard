@@ -2,11 +2,29 @@
 
 旧项目接入 Claude Code 的标准化引导流程，**Skill 形式发布版**。
 
-- 版本：v2.4（v2 系列收官版本）
+- 版本：v2.11.3（v2 系列；v2.4 是首个 net-line-decrease 里程碑，之后 v2.5-v2.11 net-grow）
 - 入口命令：`/onboard`
 - 形式：Skill（含 SKILL.md + 4 个预制 hook 脚本作为 supporting files）
 
 完整流程定义见 [`SKILL.md`](./SKILL.md)。本 README 只讲安装与使用。
+
+---
+
+## 设计承诺 · `/onboard` 永不自动执行系统级安装
+
+本 skill 是**配置助理**，不是**自动配置器**。Iron Law 7 + 元规则 19（见 SKILL.md）共同保证：
+
+| 类型 | 行为 |
+|---|---|
+| 系统 CLI（`jq` / `gh` / `glab` / `make` / `gtimeout` 等） | **永远 offer-only**——按你的 OS 列出命令字符串让你拷贝执行 |
+| 项目 dev 依赖（`ruff` / `eslint` / `mypy` / `vitest` 等） | 仅 `--share` 模式 + 用户单次 batch AUTH（`approve dev-tools-all`）后才修 `package.json` / `pyproject.toml` |
+| 语言 runtime（Node / Python / Go / Rust 等） | 默认写 `.tool-versions`（`mise` / `asdf`），永不执行 `brew install python@3.12` |
+| Claude Code plugin（`claudemd` / `code-graph-mcp` 等） | **永远 offer-only**——逐项 Y/N，不主动跑 `/plugin install` |
+| Project 文件改动（`.gitignore` / `CLAUDE.md` / `.claude/settings.json` / lint ignore 等） | 仅 `--share` 模式 + Phase 2 plan 显式 touch budget + 用户 AUTH |
+
+**默认 `--local-only` 模式**：零 PROJECT 改动、零 team 污染——所有产物落 `.claude/local-only/` + `.git/info/exclude`，团队 pull 后零感知。
+
+如果你期待的是"一键自动配置 dev / test / build 环境"，这个 skill 故意不做。它做：(a) 全面探测 (Phase 1 / 1.7)；(b) 生成 token-紧凑的 CLAUDE.md (Phase 3)；(c) 装 / 升级 / 卸载 hook (Phase 7)；(d) 整理出"你应当跑哪几条命令"的清单 (Phase 2.5)，让人类审核后逐项确认。Iron Law 7 的存在是为了避免另一个 LLM 用 batch AUTH 之名替你 `brew install` / `npm i` 一通而背锅。
 
 ---
 
@@ -456,7 +474,7 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.11.2**。
+当前版本：**v2.11.3**。
 
 **v2.11.0 改进**（8 条 P-A items，4 HIGH / 3 MED / 1 LOW；minor bump，Δ-contract additive 向后兼容）：
 - **HIGH P-A1**：CC plugin as target project — Phase 1 探测矩阵 + Phase 1 forbidden zone candidate + Phase 1.7 A8 + Phase 3 模板新增 conditional `## Plugin` 节。onboard 自己作为 target 时可正确识别 `.claude-plugin/plugin.json` + `.mcp.json` + components 自动发现层

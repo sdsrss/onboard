@@ -88,6 +88,41 @@ do
   fi
 done
 
+hdr "P-A-followup · .env boundary anchoring (v2.11.3)"
+# Real .env writes must still be denied — including chained forms and >> append.
+for danger in \
+    'echo secret > .env' \
+    'cat secrets.txt >.env' \
+    'echo X > .env && deploy' \
+    'echo X >> .env' \
+    'echo X > .env 2>&1' \
+    'echo X > .env;ls'
+do
+  d=$(gb_decision "$danger")
+  if [ "$d" = "deny" ]; then
+    pass "deny .env write: $danger"
+  else
+    fail "missed .env write: $danger (got $d)"
+  fi
+done
+
+# Variant filenames are legitimate and must NOT be denied.
+for legit in \
+    'cat config.example > .env.local' \
+    'echo X > .env.example' \
+    'echo X > .env.production' \
+    'echo X > .envrc' \
+    'echo X > .env_backup' \
+    'echo X > .env-prod'
+do
+  d=$(gb_decision "$legit")
+  if [ "$d" = "allow" ]; then
+    pass "allow .env variant: $legit"
+  else
+    fail "false-positive on .env variant: $legit (got $d)"
+  fi
+done
+
 hdr "P-B2 + P-B4 · stop-verify honors ONBOARD_LOG_DIR + survives whitespace filenames"
 SV_HOME="$SANDBOX/sv"
 LOG_DIR="$SV_HOME/local-only-logs"

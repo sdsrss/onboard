@@ -97,6 +97,42 @@ else
   fail "hook content differs on re-run (before=$HOOKS_SHA_BEFORE after=$HOOKS_SHA_AFTER)"
 fi
 
+hdr "STEP 3b: cmp -s fast path (v2.11.3) — re-run with identical SOURCE skips manifest rewrite"
+# Stamp the existing manifest's mirrored_at, re-run, and confirm it didn't change:
+# mirror-hooks.sh should detect content-unchanged + manifest-current and skip both
+# the cp loop and the manifest write entirely.
+MANIFEST_TS_BEFORE=$(jq -r '.mirrored_at' "$MANIFEST")
+NOOP_LOG="$SANDBOX/noop.log"
+ONBOARD_MIRROR_SOURCE="$SNAP1" ONBOARD_MIRROR_DEST="$DEST" "$MIRROR_SCRIPT" >"$NOOP_LOG" 2>&1
+MANIFEST_TS_AFTER=$(jq -r '.mirrored_at' "$MANIFEST")
+if [ "$MANIFEST_TS_BEFORE" = "$MANIFEST_TS_AFTER" ]; then
+  pass "manifest mirrored_at unchanged on no-op re-run (manifest write skipped)"
+else
+  fail "manifest rewritten on no-op (before=$MANIFEST_TS_BEFORE after=$MANIFEST_TS_AFTER)"
+fi
+if grep -q "no changes" "$NOOP_LOG"; then
+  pass "no-op re-run logs 'no changes'"
+else
+  fail "no-op re-run missing 'no changes' message (got: $(cat "$NOOP_LOG"))"
+fi
+
+# Drift one hook and re-run — should rewrite that one hook + refresh manifest.
+echo "# drift" >> "$DEST/guard-bash.sh"
+DRIFT_LOG="$SANDBOX/drift.log"
+sleep 1  # ensure timestamp would differ if the manifest is rewritten
+ONBOARD_MIRROR_SOURCE="$SNAP1" ONBOARD_MIRROR_DEST="$DEST" "$MIRROR_SCRIPT" >"$DRIFT_LOG" 2>&1
+MANIFEST_TS_DRIFT=$(jq -r '.mirrored_at' "$MANIFEST")
+if [ "$MANIFEST_TS_DRIFT" != "$MANIFEST_TS_AFTER" ]; then
+  pass "manifest rewritten when one hook drifted"
+else
+  fail "manifest NOT rewritten despite drift"
+fi
+if grep -qE 'mirrored 1 hooks' "$DRIFT_LOG"; then
+  pass "drift re-run reports 'mirrored 1 hooks'"
+else
+  fail "drift re-run log missing per-file count (got: $(cat "$DRIFT_LOG"))"
+fi
+
 hdr "STEP 4: plugin-update simulation (new ephemeral path, same content)"
 PREV_SOURCE=$(jq -r '.source' "$MANIFEST")
 [ "$PREV_SOURCE" = "$SNAP1" ] && pass "pre-update manifest.source = SNAP1" || fail "pre-update manifest.source mismatch (got $PREV_SOURCE)"

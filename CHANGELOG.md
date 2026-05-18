@@ -4,7 +4,35 @@
 
 ---
 
-## v2.11.2 — release-preflight 维护脚本（current）
+## v2.11.3 — audit follow-up patch (current)
+
+Post-audit Batch A：5 条低风险修正，2 个测试套件扩容。无 Iron Law / 元规则变化，无 schema 破坏，纯 polish + 修正一处明确的 false-positive。
+
+### Fixed
+
+- **H1 · `guard-bash.sh` `.env` 模式 false-positive**：`'> *\.env'` 子串匹配会拦合法的 `> .env.local` / `> .env.example` / `> .envrc` / `> .env_backup` 等变体文件。改成 `'>[[:space:]]*\.env([^.a-zA-Z0-9_-]|$)'`，在 `.env` token 边界处锚定——仍 deny `> .env` / `>.env` / `>> .env 2>&1` / `> .env && deploy`，但放行所有 `.env.<suffix>` / `.env_<suffix>` / `.env-<suffix>` / `.envrc` 形态。`hook-behavior.sh` 加 12 个正反断言（6 deny + 6 allow），22 → 34
+- **M4 · `install.sh` `git reset --hard` 缺豁免注释**：`do_update` 第 169 行 reset 是对 stage cache 操作，不归 Iron Law 14（PROJECT only）管，但读 diff 的人没线索。补上 4 行注释指明：STAGE_DIR 在 `~/.claude/.cache/` 是 user-global 缓存，installer 拥有的 throwaway clone，Iron Law 14 不适用
+- **M5 · `settings.local.template.json` 缺 inline keeper 路径文档**：`=skill` 卸载会原子重写 4 处 `command` 字段为 `${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/hooks/<name>.sh`（元规则 26），但每个 hook 块只在 file-top `_comment` 提了一次，深层 reader 易漏。每个 matcher 块加 `_keeper_command_after_skill_uninstall` 字段就近标注 post-rewrite 路径；标准 JSON parsers 忽略 underscore-prefix 未知字段，jq atomic rewrite (元规则 26) 只动 `.command` 不动该注解字段，所以无副作用
+
+### Added
+
+- **L1 · `mirror-hooks.sh` cmp -s fast path**：源 = 目标已相同时跳过 `cp` + `chmod` + manifest 重写，让"幂等无开销"可观察。日志：变化时 `mirrored N hooks (v$V) → $DEST (M unchanged)`；全 unchanged 时 `no changes — all N hooks already current (v$V) at $DEST`；只有源版本改但内容相同时 `refreshed manifest (v$V) → $DEST (all N hooks already current)`。`mirrored_at` 字段语义收紧：现在反映"最近一次真实 mirror 操作"，不再是"最近一次调用"——便于诊断真实变更点。`hook-mirror.sh` 加 4 个断言（manifest TS 不变 / "no changes" 日志 / drift 后重写 / 单文件 mirrored count），29 → 33
+- **README · "设计承诺" 顶部 section**：明示 Iron Law 7 + 元规则 19 的设计选择——`/onboard` 永不自动执行系统级安装。5 类安装行为（System CLI / dev dep / runtime / CC plugin / Project 文件）逐类列清。避免"一键自动配置"宣传与"逐项 offer-only" 实操之间的张力
+
+### Tests
+
+- 9 个 integration tests / **166 assertions** / 0 fail（+16）
+- `bash scripts/verify-counts.sh`：全对齐
+- `bash scripts/release-preflight.sh`：本 release 自我验证 PASS
+
+### 升级路径
+
+- 纯 polish + 文档 + 一处明确 bug fix，无 schema 破坏，无 user-facing flag 变化
+- v2.11.2 → v2.11.3：`bash install.sh update`；已 onboarded 项目无需重跑
+
+---
+
+## v2.11.2 — release-preflight 维护脚本
 
 把 `feedback_cross_cutting_grep` + `feedback_git_index_chmod_on_new_sh` + `feedback_release_commit_staging` + `scripts/verify-counts.sh` 四类 pre-commit hygiene 合成单一 `scripts/release-preflight.sh`。纯维护工具，无 /onboard runtime behavior 变化。
 

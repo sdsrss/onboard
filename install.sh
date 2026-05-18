@@ -165,6 +165,10 @@ do_update() {
       fi
     fi
 
+    # Iron Law 14 (SKILL.md:58) forbids `git reset --hard` on PROJECT files.
+    # STAGE_DIR is a throwaway clone under ~/.claude/.cache/, NOT a PROJECT —
+    # the user-global cache is by design owned by this script. Hard reset is
+    # the correct operation here; the rule doesn't reach into installer state.
     git fetch --depth 1 origin "$BRANCH" >/dev/null 2>&1
     git reset --hard "origin/$BRANCH" >/dev/null 2>&1
     popd >/dev/null

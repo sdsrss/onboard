@@ -19,13 +19,16 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # (or ~ / $HOME) — without anchoring, `rm -rf /` matches as a substring of
 # `rm -rf /tmp/foo`, which is a false-positive that blocks legitimate cleanup.
 # `[;&|]` end-marker also catches chained forms like `rm -rf / && ...`.
+# The `.env` pattern is anchored at the trailing token boundary so legitimate
+# variants (`.env.local`, `.env.example`, `.envrc`, `.env_backup`) are allowed
+# while `cat secret > .env`, `> .env && ...`, `>> .env 2>&1` are denied.
 BLOCK_PATTERNS=(
   'rm[[:space:]]+-rf[[:space:]]+/[[:space:]]*($|[;&|])'
   'rm[[:space:]]+-rf[[:space:]]+~[[:space:]]*($|[;&|])'
   'rm[[:space:]]+-rf[[:space:]]+\$HOME[[:space:]]*($|[;&|])'
   'chmod -R 777'
   'git push --force.*origin (main|master)'
-  '> *\.env'
+  '>[[:space:]]*\.env([^.a-zA-Z0-9_-]|$)'
   'curl .* \| (ba)?sh'
 )
 
