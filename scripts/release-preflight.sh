@@ -82,7 +82,8 @@ PIN_RULES=(
   'skills/onboard/settings.template.json::"_onboard_version": "$V"'
   'skills/onboard/settings.local.template.json::"_onboard_version": "$V"'
   'CLAUDE.md::current version: v$V'
-  'README.md::当前版本：\*\*v$V\*\*'
+  'README.md::Current version: \*\*v$V\*\*'
+  'README.zh-CN.md::当前版本：\*\*v$V\*\*'
 )
 
 for rule in "${PIN_RULES[@]}"; do
