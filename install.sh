@@ -208,7 +208,8 @@ do_uninstall() {
   warn "  • .gitignore / .git/info/exclude lines written by onboard are NOT removed"
   echo ""
   warn "For per-project cleanup, run inside each project BEFORE this uninstall:"
-  warn "  cd <project> && /onboard --uninstall"
+  warn "  cd <project> && /onboard --uninstall=all       # full cleanup"
+  warn "  cd <project> && /onboard --uninstall=skill     # keep project config, drop user-global only"
   echo ""
 
   if [ -t 0 ]; then

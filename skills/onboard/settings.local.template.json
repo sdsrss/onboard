@@ -1,5 +1,5 @@
 {
-  "_comment": "Reference template for .claude/settings.local.json after /onboard v2.11.0 in --local-only mode (default). Markers (_onboard_managed: true on every hook block, _onboard_managed_env_keys in env) drive /onboard --uninstall=all surgical removal — standard JSON parsers ignore unknown fields. v2.10.2 added ONBOARD_LOG_DIR pointing at .claude/local-only/onboarding-logs so post-edit-check.sh / stop-verify.sh write their runtime logs INSIDE the local-only sandbox instead of leaking to .claude/onboarding-logs (share-mode path) which would dirty PROJECT. This file is Claude Code's per-user override, conventionally NOT committed. Hook paths reference the user-global skill install (~/.claude/skills/onboard/) so the project tree stays untouched. If you installed onboard as a project-shared skill, replace ~/.claude with ${CLAUDE_PROJECT_DIR}/.claude in the four hook command paths. v2.11 NEW: `/onboard --uninstall=skill` automatically rewrites the four `command:` paths from `${HOME}/.claude/skills/onboard/hooks/` to `${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/hooks/` (and copies hook scripts there) BEFORE the user-global skill is removed — so hook invocations continue to work post-skill-uninstall (per 元规则 26).",
+  "_comment": "Reference template for .claude/settings.local.json after /onboard v2.11.1 in --local-only mode (default). Markers (_onboard_managed: true on every hook block, _onboard_managed_env_keys in env) drive /onboard --uninstall=all surgical removal — standard JSON parsers ignore unknown fields. v2.10.2 added ONBOARD_LOG_DIR pointing at .claude/local-only/onboarding-logs so post-edit-check.sh / stop-verify.sh write their runtime logs INSIDE the local-only sandbox instead of leaking to .claude/onboarding-logs (share-mode path) which would dirty PROJECT. This file is Claude Code's per-user override, conventionally NOT committed. Hook paths reference the user-global skill install (~/.claude/skills/onboard/) so the project tree stays untouched. If you installed onboard as a project-shared skill, replace ~/.claude with ${CLAUDE_PROJECT_DIR}/.claude in the four hook command paths. v2.11 NEW: `/onboard --uninstall=skill` automatically rewrites the four `command:` paths from `${HOME}/.claude/skills/onboard/hooks/` to `${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/hooks/` (and copies hook scripts there) BEFORE the user-global skill is removed — so hook invocations continue to work post-skill-uninstall (per 元规则 26).",
 
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "packages/legacy-core:vendor",
@@ -14,7 +14,7 @@
     "PreToolUse": [
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "matcher": "Bash",
         "hooks": [
           {
@@ -26,7 +26,7 @@
       },
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
@@ -40,7 +40,7 @@
     "PostToolUse": [
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
@@ -54,7 +54,7 @@
     "Stop": [
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "hooks": [
           {
             "type": "command",

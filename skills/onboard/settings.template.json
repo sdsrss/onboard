@@ -1,5 +1,5 @@
 {
-  "_comment": "Reference template for .claude/settings.json after /onboard v2.11.0 in --share mode (Skill form). Markers (_onboard_managed: true on every hook block, _onboard_managed_env_keys in env) drive /onboard --uninstall=all surgical removal — standard JSON parsers ignore unknown fields. v2.10.2 added ONBOARD_LOG_DIR so post-edit-check.sh / stop-verify.sh write their runtime logs to a mode-aware path (share = .claude/onboarding-logs; local-only = .claude/local-only/onboarding-logs); without it the share path was hardcoded and leaked into local-only working trees. Note: --share is OPT-IN as of v2.6; default mode is --local-only which uses settings.local.template.json instead. v2.11 NEW: --uninstall parameterized to [=skill|all]; in share mode hook scripts already live in-project at .claude/skills/onboard/hooks/, so =skill is a no-op-on-project (only L1 user-global gets cleaned). Replace placeholder values per project, then merge into your existing settings.json using Phase 7 deep-merge strategy (independent matcher blocks, never collapse into the same hooks array).",
+  "_comment": "Reference template for .claude/settings.json after /onboard v2.11.1 in --share mode (Skill form). Markers (_onboard_managed: true on every hook block, _onboard_managed_env_keys in env) drive /onboard --uninstall=all surgical removal — standard JSON parsers ignore unknown fields. v2.10.2 added ONBOARD_LOG_DIR so post-edit-check.sh / stop-verify.sh write their runtime logs to a mode-aware path (share = .claude/onboarding-logs; local-only = .claude/local-only/onboarding-logs); without it the share path was hardcoded and leaked into local-only working trees. Note: --share is OPT-IN as of v2.6; default mode is --local-only which uses settings.local.template.json instead. v2.11 NEW: --uninstall parameterized to [=skill|all]; in share mode hook scripts already live in-project at .claude/skills/onboard/hooks/, so =skill is a no-op-on-project (only L1 user-global gets cleaned). Replace placeholder values per project, then merge into your existing settings.json using Phase 7 deep-merge strategy (independent matcher blocks, never collapse into the same hooks array).",
 
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "packages/legacy-core:vendor",
@@ -14,7 +14,7 @@
     "PreToolUse": [
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "matcher": "Bash",
         "hooks": [
           {
@@ -26,7 +26,7 @@
       },
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
@@ -40,7 +40,7 @@
     "PostToolUse": [
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
@@ -54,7 +54,7 @@
     "Stop": [
       {
         "_onboard_managed": true,
-        "_onboard_version": "2.11.0",
+        "_onboard_version": "2.11.1",
         "hooks": [
           {
             "type": "command",

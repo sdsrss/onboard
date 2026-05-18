@@ -4,7 +4,44 @@
 
 ---
 
-## v2.11.0 — uninstall 三层模型 + CC plugin detection + install.sh 自动化（current）
+## v2.11.1 — code-review follow-up patch（current）
+
+4 条 P-A-followup fixes（reviewer-surfaced Important 全收）+ 1 个新维护脚本。源自 v2.11.0 ship 后 `superpowers:requesting-code-review` 跑出的发现，无 schema 破坏，无 user-facing flag 变化。
+
+### Fixed
+
+- **Issue #1**：`CLAUDE.md` inventory line per-test counts 修正：`skillmd-links.sh` 22 → 9；`hook-behavior.sh` 24 → 22（claimed total 仍是 150，但 per-test claim 总和 165 ≠ 150 — 修后 9+22+29+34+24+8+2+1+21 = 150 一致）；删除误导性 "counts include hdr lines" 副括号
+- **Issue #2**：SKILL.md `=skill` 流程步骤 2 rollback 顺序收紧 — snapshot 提到子步骤 2.0（先于 keeper 创建），按已完成步骤号 0..4 给出精确回滚矩阵 + 明确"绝不允许 settings 已重写但 keeper 不存在"作为 元规则 26 实操不变量。原 spec 把 snapshot 放在 atomic jq 重写一节里，逻辑上正确但顺序与 prose 描述错位，若 step 1-2 (mkdir+cp) 部分失败时回滚 prose 读起来"还原 snapshot"是 no-op
+- **Issue #3**：SKILL.md `=all` 流程 step 3 AUTH chain 歧义消除 — 显式声明 step 2 干跑预览的 hard AUTH 已覆盖 L1+L2+L3 所有删除类，子步骤里不再弹 AUTH；防止 implementing Claude 因 元规则 22 "no batch AUTH for uninstall" 误以为要逐子步骤再触发 AUTH
+- **Issue #4**：`install.sh` do_uninstall pre-prompt 一致性 — 原 `cd <project> && /onboard --uninstall` 与同文件 HELP 块 `--uninstall=all` 不一致；现两行分别提示 `=all`（完整清理）和 `=skill`（仅卸 user-global），同步 HELP 文案
+
+### Added
+
+- **`scripts/verify-counts.sh`** — 维护脚本：直接跑 `tests/integration/*.sh` 收集 per-test `pass: N`，对账 `CLAUDE.md` headline + per-test counts + `CHANGELOG.md` latest section TOTAL。`feedback_cross_cutting_grep.md` lesson 的机械化对账实现。**不**接入 `tests/run.sh`（会递归调自身）；release 前手动跑或 wire 进 pre-commit hook
+  - Exit 0 = 全对齐；1 = drift；2 = 调用 / 解析错
+  - 本次 release 跑通：actual 150 across 9 tests，匹配 CLAUDE.md 与 CHANGELOG v2.11.0 段
+
+### Changed
+
+- `tests/integration/uninstall-modes.sh`：snapshot-元规则 21 grep 模式 wording-tolerant 化（reviewer rec #9）— 从 `'snapshot per 元规则 21'` 精确匹配改成 `'snapshot.*元规则 21|元规则 21.*snapshot'` 双向，避免 spec wording 微调即破测试
+
+### Tests
+
+- 仍 9 个 integration tests / 150 assertions / 0 fail
+- `scripts/verify-counts.sh` 跑通：全部 per-test claim + headline + CHANGELOG 引用一致
+
+### Known limits
+
+- v2.11.0 known limit 仍在：真实 `/plugin install onboard` 端到端 dogfood + `=skill` 沙箱 jq 跑通仍未做。本 patch 没扩 scope 去补它们，留给 v2.12 batch
+
+### 升级路径
+
+- 纯文档 / 实操约束 patch，无 schema 破坏
+- v2.11.0 → v2.11.1：`bash install.sh update`（自动从 stage cache 拉新版）；已 onboarded 项目无需重跑
+
+---
+
+## v2.11.0 — uninstall 三层模型 + CC plugin detection + install.sh 自动化
 
 8 条 P-A items（4 HIGH / 3 MED / 1 LOW）batched into single minor release。Source：2026-05-15 全仓审计 + v2.10.2 ship-后设计讨论。无 schema 破坏，所有改动 Δ-contract additive 或向后兼容。
 

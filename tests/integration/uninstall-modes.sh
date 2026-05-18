@@ -94,7 +94,7 @@ if grep -qE 'jq atomic.*tmp.*mv' "$SKILL" || grep -qE 'jq.*tmp \+ mv' "$SKILL"; 
 else
   fail "Uninstall Mode 缺 atomic jq edit (tmp + mv) 说明"
 fi
-if grep -qE 'snapshot per 元规则 21' "$SKILL"; then
+if grep -qE 'snapshot.*元规则 21|元规则 21.*snapshot' "$SKILL"; then
   pass "Uninstall Mode 引用 元规则 21（snapshot before edit）"
 else
   fail "Uninstall Mode 缺 元规则 21 snapshot 引用"

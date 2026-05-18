@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.11.0)
+# /onboard — Legacy Project Onboarding Protocol (v2.11.1)
 
 参数：`$ARGUMENTS`
 
@@ -2104,7 +2104,15 @@ mode:   skill (L1 only; L2 + L3 preserved)
    - `user-skill`（`install.sh install`） → L1 在 `~/.claude/skills/onboard/`
    - `plugin`（`/plugin install onboard`） → L1 在 `~/.claude/plugins/cache/onboard@<ver>/` + mirror
    - `project-skill`（共享 skill clone 到项目内） → L1 = L3，`=skill` 在此场景 no-op-on-L1（仅清 mirror dir）
-2. **本地化 hooks**（**仅 local-only 模式 + L1 即将消失时执行**，per 元规则 26）：
+2. **本地化 hooks**（**仅 local-only 模式 + L1 即将消失时执行**，per 元规则 26）。**步骤顺序固定**（v2.11.1 收紧：snapshot 必须在任何写动作之前；记录已完成步骤索引以便精确回滚）：
+
+   **步骤 2.0 snapshot**（先于一切写动作，per 元规则 21）：
+   ```bash
+   SNAP=".claude/local-only/onboard-snapshots/settings.local.json.$(date -u +%Y%m%dT%H%M%SZ).uninstall-skill.pre"
+   cp .claude/settings.local.json "$SNAP"   # 不存在 → abort，没什么可保的
+   ```
+
+   **步骤 2.1 keeper 目录与 hook 副本**：
    ```bash
    KEEPER="$CLAUDE_PROJECT_DIR/.claude/onboard-keeper/hooks"
    SKILL_SRC="$HOME/.claude/skills/onboard"   # 或 ${CLAUDE_PLUGIN_ROOT}/skills/onboard
@@ -2114,20 +2122,30 @@ mode:   skill (L1 only; L2 + L3 preserved)
    cp -a "$SKILL_SRC/scripts/mirror-hooks.sh" "$KEEPER/../scripts/" 2>/dev/null || true
    chmod +x "$KEEPER"/*.sh "$KEEPER/../scripts/"*.sh 2>/dev/null || true
    ```
-   - **Atomic settings.local.json 重写**（先 snapshot 再 jq 改写）：
-     ```bash
-     # snapshot per 元规则 21
-     cp .claude/settings.local.json \
-        .claude/local-only/onboard-snapshots/settings.local.json.$(date -u +%Y%m%dT%H%M%SZ).uninstall-skill.pre
 
-     # jq atomic edit: tmp + mv
-     jq '(.hooks[].[]?.hooks[]?.command) |= sub("\\$\\{HOME\\}/\\.claude/skills/onboard/"; "${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/")' \
-       .claude/settings.local.json > .claude/settings.local.json.tmp \
-       && mv .claude/settings.local.json.tmp .claude/settings.local.json
-     ```
-   - 写入 `.git/info/exclude`（marker 块内）：`.claude/onboard-keeper/`
-   - 更新 `onboard-manifest.json`：追加 `keeper_dir: ".claude/onboard-keeper/"` + `mode_after_skill_uninstall: "keeper-localized"`
-   - **回滚**：任一步骤失败 → 用 snapshot 还原 settings.local.json + `rm -rf .claude/onboard-keeper/` + abort 整个 `=skill` 流程
+   **步骤 2.2 atomic jq 重写**（tmp + mv，per Iron Law 14）：
+   ```bash
+   jq '(.hooks[][]?.hooks[]?.command) |= sub("\\$\\{HOME\\}/\\.claude/skills/onboard/"; "${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/")' \
+     .claude/settings.local.json > .claude/settings.local.json.tmp \
+     && mv .claude/settings.local.json.tmp .claude/settings.local.json
+   ```
+
+   **步骤 2.3 `.git/info/exclude`**（marker 块内）：追加 `.claude/onboard-keeper/`
+
+   **步骤 2.4 onboard-manifest.json 更新**：追加 `keeper_dir: ".claude/onboard-keeper/"` + `mode_after_skill_uninstall: "keeper-localized"`
+
+   **精确回滚矩阵**（per 元规则 22 重入 + 元规则 26 原子回滚 — 按已完成的最高步骤号 N 逆序撤销 N..0）：
+
+   | 失败发生在 | 已完成 | 回滚动作（按序） |
+   |---|---|---|
+   | 2.0 | 无 | abort，没有副作用 |
+   | 2.1 | snap | abort（settings 未改；snap 留着备查） |
+   | 2.2 (mv 前) | snap, keeper | `rm -rf .claude/settings.local.json.tmp .claude/onboard-keeper/`；abort |
+   | 2.2 (mv 中/后但后续失败) | snap, keeper, settings 已 mv | `cp "$SNAP" .claude/settings.local.json`；`rm -rf .claude/onboard-keeper/`；abort |
+   | 2.3 | snap, keeper, settings | 同上 + 撤销已写入的 exclude 行 |
+   | 2.4 | snap, keeper, settings, exclude | 同上 + 撤销 manifest 追加 |
+
+   绝不允许 settings.local.json 处于已重写状态但 keeper 不存在的悬空态——这就是 元规则 26 禁止的"broken hook path"残留。
 3. **干跑预览 + 单次 hard AUTH**：
    ```
    Skill-uninstall plan:
@@ -2192,8 +2210,8 @@ mode:   skill (L1 only; L2 + L3 preserved)
 
    Proceed? [Y/n/restore-snapshot]
    ```
-3. **用户确认后执行**：
-   - L1 清理：调用 `=skill` 流程的 step 4（但**跳过** step 2 本地化——`=all` 下 L3 也要删除）
+3. **用户确认后执行**（**重要**：本 step 2 干跑预览的 hard AUTH 已覆盖整套 `=all` 的所有删除类——L1 + L2 + L3——不在子步骤里重新弹 AUTH，否则违反 元规则 25 单次审批契约 + UX 暴击；元规则 22 "每类删除单独 hard AUTH" 在 `=all` 里以"在 step 2 预览里逐类列出 + 用户一次性 Y"的形式满足）：
+   - L1 清理：跑 `=skill` 流程的 step 4 命令清单（user-skill / plugin / project-skill 三种来源的对应动作），但**跳过** `=skill` step 2 keeper 本地化——`=all` 下 L3 也要删，本地化无意义；AUTH 不重弹
    - L2 清理：逐 file 编辑 marker 块；JSON 用 jq 过滤 `_onboard_managed: true` + 删除 `_onboard_managed_env_keys` 列出的 env key；删除空 hook 数组 / 空 env 对象（若 onboard 是 settings 唯一来源）；保留 settings 文件本身
    - L3 清理：rm `.claude/local-only/`、rm `.claude/onboard-keeper/`（若存在）
 4. **restore-snapshot 流程**（用户选 restore 而非 remove）：
