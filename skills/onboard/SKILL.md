@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.11.3)
+# /onboard — Legacy Project Onboarding Protocol (v2.12.0)
 
 参数：`$ARGUMENTS`
 
@@ -1408,6 +1408,7 @@ Phase 7 行为同时依两个维度决定：
 {
   "env": {
     "ONBOARD_FORBIDDEN_PATHS": "<冒号分隔 confirmed list>",
+    "ONBOARD_FORBIDDEN_COMMANDS": "<换行分隔 grep -qE regex list；v2.12.0 新增>",
     "ONBOARD_TOUCHED_LOG": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs/touched-files.txt",
     "ONBOARD_LOG_DIR": "${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs",
     "ONBOARD_STOP_MODE": "light",
@@ -1456,7 +1457,9 @@ Phase 7 行为同时依两个维度决定：
 
 `ONBOARD_LOG_DIR` 按模式取值（mode-aware）：share = `${CLAUDE_PROJECT_DIR}/.claude/onboarding-logs`；local-only = `${CLAUDE_PROJECT_DIR}/.claude/local-only/onboarding-logs`。hook 用此 env 决定 `stop-lint-*.log` / `post-edit-check.log` 等运行期日志的归宿——hardcode `.claude/onboarding-logs/` 会让 local-only 模式的日志泄漏到 PROJECT 工作树。
 
-### 多栈配置文件（v2.4 新增）
+`ONBOARD_FORBIDDEN_COMMANDS`（v2.12.0 新增）：guard-bash.sh 读此 env 作 project-level command deny。**换行**分隔的 `grep -qE` (ERE) 正则列表——选换行而非冒号是为了 POSIX 字符类 `[[:space:]]` / `[[:alpha:]]` 等可以原样使用而不被分隔符撕碎。JSON 里写 `\n` 转义即可（解码后是真换行字节，bash `while read` 正确处理）。空值（默认）= 不做 project-level command 拦截，只跑 guard-bash 内置 7 条全局 deny。补足了 Iron Law 16 历史上"forbidden zones 有 global 机制，forbidden commands 没有"的对称性缺口。
+
+### 多栈配置文件（v2.4 新增；v2.12.0 加 per-stack timeout）
 
 多语言项目把栈配置落到 `.claude/onboarding-logs/stacks.json`（RUNTIME）：
 
@@ -1476,12 +1479,24 @@ Phase 7 行为同时依两个维度决定：
     "extensions": [".py"],
     "lint_cmd": "poetry run ruff check",
     "typecheck_cmd": "poetry run mypy",
-    "format_check_cmd": "poetry run ruff format --check"
+    "format_check_cmd": "poetry run ruff format --check",
+    "typecheck_timeout_sec": 120
   }
 ]
 ```
 
 hook 脚本通过 `ONBOARD_STACKS_FILE` env 读取此 JSON。
+
+**v2.12.0 per-stack timeout 字段**（可选，缺省落回历史默认）：
+
+| 字段 | 用在 | 默认 | 用途 |
+|---|---|---|---|
+| `lint_timeout_sec` | stop-verify.sh 全模式 | 30 | large monorepo 单栈 `pnpm -s lint` cold 时常 > 30s 触发 Stop block，按栈调高 |
+| `typecheck_timeout_sec` | stop-verify.sh standard/strict | 45 | `mypy` / `tsc --noEmit` 冷启动经常 60-120s，medium+ 项目几乎必须调 |
+| `format_timeout_sec` | stop-verify.sh strict | 30 | 全量 `prettier --check` / `ruff format --check` |
+| `format_check_timeout_sec` | post-edit-check.sh | 10 | 每次 Edit 同步跑——`black --check` 冷启 5-8s，10s 默认偏紧 |
+
+历史硬编码的 30/45/30/10s 是从 small/medium 项目的常见耗时倒推的，large 项目几乎必须覆盖。Iron Law 19（warn-only must exit 0）仍生效——超时本身不写 stderr 阻断，只走 Stop hook 的 `decision: "block"` JSON 协议。
 
 ### Stop hook 模式策略
 

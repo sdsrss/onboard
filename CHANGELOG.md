@@ -4,7 +4,43 @@
 
 ---
 
-## v2.11.3 — audit follow-up patch (current)
+## v2.12.0 — audit follow-up Batch B + C2 (current)
+
+Post-architecture-audit Batch B + C2：3 个 additive 特性 + 1 个 critical 缺口补齐。**Minor bump** 因 (a) 引入新 env (`ONBOARD_FORBIDDEN_COMMANDS`) 和新 stacks.json 字段（additive Δ-contract），(b) 新增 user-callable script (`scripts/validate-state.sh`)，(c) 新增 1 个集成测试套件。**纯 additive**，无 schema 破坏，无现有行为变化。
+
+### Added
+
+- **H2 · `ONBOARD_FORBIDDEN_COMMANDS` env**（`guard-bash.sh`）：补齐 Iron Law 16 对称性缺口。audit 发现 forbidden zones 有 global 机制（`ONBOARD_FORBIDDEN_PATHS` → `guard-edit.sh`），但**forbidden commands 没有**——项目无法说"本仓库禁止 `flyctl deploy --strategy=immediate`" 或 "禁止 `psql ... -c DROP`"。`guard-bash.sh` 现读 `ONBOARD_FORBIDDEN_COMMANDS`（newline-separated `grep -qE` ERE 正则；空 = 关）作 project-level deny。换行分隔（**不**用 `:`）是 deliberate design choice——`:` 跟 POSIX 字符类 `[[:space:]]` / `[[:alpha:]]` 冲突；newline 让用户写 `kubectl[[:space:]]+delete[[:space:]]+namespace` 原样可用。Built-in 7 条 dangerous patterns 仍然 unconditional 优先生效。Deny reason 显式标 `Blocked by ONBOARD_FORBIDDEN_COMMANDS pattern: <pat>` 便于诊断。2 个 settings template 加新 env + `_comment_ONBOARD_FORBIDDEN_COMMANDS` 内联说明。`hook-behavior.sh` 加 11 个断言（empty / single-pattern / multi-pattern / POSIX 字符类 / 空 slot / built-in 共存 / reason 字符串）
+- **H3 · per-stack timeout 字段**（`stacks.json` + `stop-verify.sh` + `post-edit-check.sh`）：audit 发现历史硬编码的 30/45/30/10s timeouts 在 medium/large monorepo 上几乎必然触发 Stop block（`mypy` / `tsc --noEmit` cold start 60-120s 是常态）。新加 4 个可选字段：`lint_timeout_sec` (default 30) / `typecheck_timeout_sec` (default 45) / `format_timeout_sec` (default 30) / `format_check_timeout_sec` (default 10)。缺省保持历史行为；大项目按栈调高即可摆脱"良性 block"。SKILL.md Phase 7 stacks.json schema 更新 + timeout 表格说明。`hook-behavior.sh` 加 4 个断言（default OK / lint timeout / typecheck timeout / post-edit-check format timeout）
+- **C2 · `scripts/validate-state.sh` + `tests/integration/state-schema.sh`**：audit Critical 缺口——SKILL.md:2317-2440 描述了完整 state file schema 但**没任何代码**校验它。Consumer Claude 可以标 `phases.3.status: "done"` 而不写任何 managed file，doctor D1 才会发现。补上脚本化校验器：required top-level fields / `mode` enum / `params.local_only` XOR `params.share` / `mode`↔params 一致性 / phase status 枚举 / stacks 数组 / version 格式 / auto-find 项目根 state file。**Exit codes**：0 valid / 1 violations / 2 invocation error。**未**接入 doctor mode D1（下一版本工作），仅作 standalone tool。`state-schema.sh` 新测试套件 21 个断言覆盖 valid / missing-version / bad-mode / params-both-true / params-both-false / mode-mismatch / bad-phase-status / stacks-not-array / invalid-JSON / auto-find / no-arg-no-file / bad-version-format
+
+### Changed
+
+- SKILL.md Phase 7 settings.json template 加 `ONBOARD_FORBIDDEN_COMMANDS` env 行 + 5 段散文说明（separator design choice / Iron Law 16 对称性）
+- SKILL.md "多栈配置文件" header 标 `v2.12.0 加 per-stack timeout`；stacks.json 示例加 `typecheck_timeout_sec: 120` 演示用法；新增 4 字段表格说明
+- 元规则 / Iron Law 数量**未变**——本次是 additive 实现，不引入新 spec 约束
+
+### Tests
+
+- 10 个 integration tests / **202 assertions** / 0 fail（+36：H2 11 + H3 4 + C2 21）
+- `bash scripts/verify-counts.sh`：全对齐
+- `bash scripts/release-preflight.sh`：本 release 自我验证 PASS
+
+### Known limits
+
+- C2 的 validator 是 standalone，**未**接入 doctor mode D1——D1 仍按 SKILL.md 原描述跑 grep。把 `validate-state.sh` 接入 D1 是下个 minor 候选
+- C2 没改 SKILL.md state file schema 本身——只校验它。schema 重大升级（如把 `mode` 拆 sub-object）仍是 v3.x 议题
+- H2 默认值是空字符串。Phase 7 实际写入 settings 时该字段保留为空——consumer Claude 在 Phase 1.7 A6 行为禁令推断阶段可以**建议**填充常见模式（如 `psql.*DROP TABLE`），但绝不预填——避免误拦 onboarder 自己想跑的合法命令
+
+### 升级路径
+
+- 纯 additive，无 schema / 现有行为变化
+- v2.11.3 → v2.12.0：`bash install.sh update`；已 onboarded 项目无需重跑
+- 想用 H2 / H3 新字段 → 编辑 `.claude/settings.local.json` 加 env 或 `stacks.json` 加 timeout 字段；onboard 不会自动注入
+
+---
+
+## v2.11.3 — audit follow-up patch
 
 Post-audit Batch A：5 条低风险修正，2 个测试套件扩容。无 Iron Law / 元规则变化，无 schema 破坏，纯 polish + 修正一处明确的 false-positive。
 

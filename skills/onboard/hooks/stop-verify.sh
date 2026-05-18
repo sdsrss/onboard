@@ -73,6 +73,15 @@ for stack_id in $STACK_IDS; do
   TC_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .typecheck_cmd // empty' "$STACKS_FILE")
   FMT_CMD=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .format_check_cmd // empty' "$STACKS_FILE")
 
+  # Per-stack timeout overrides (v2.12.0). Large monorepos routinely blow past
+  # the previous hardcoded 30/45/30s on cold `mypy` / `tsc --noEmit` runs,
+  # turning standard / strict mode into a guaranteed Stop-block. Each stack
+  # can override via stacks.json `lint_timeout_sec` / `typecheck_timeout_sec`
+  # / `format_timeout_sec`; defaults preserve historical behavior.
+  LINT_TO=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .lint_timeout_sec // 30' "$STACKS_FILE")
+  TC_TO=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .typecheck_timeout_sec // 45' "$STACKS_FILE")
+  FMT_TO=$(jq -r --arg sid "$stack_id" '.[] | select(.id == $sid) | .format_timeout_sec // 30' "$STACKS_FILE")
+
   # Filter touched files belonging to this stack (by extension).
   # Quote each match with %q so paths with whitespace / shell metachars stay
   # intact when handed to `bash -lc "$LINT_CMD $STACK_FILES_QUOTED"`.
@@ -93,7 +102,7 @@ for stack_id in $STACK_IDS; do
       # Incremental lint only
       [ "$HAVE_STACK_FILES" -eq 0 ] && continue
       if [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
+        timeout "$LINT_TO" bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
           || FAILED+=("lint:$stack_id")
       fi
       ;;
@@ -101,11 +110,11 @@ for stack_id in $STACK_IDS; do
     standard)
       # Incremental lint + full typecheck
       if [ "$HAVE_STACK_FILES" -eq 1 ] && [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
+        timeout "$LINT_TO" bash -lc "$LINT_CMD$STACK_FILES_QUOTED" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
           || FAILED+=("lint:$stack_id")
       fi
       if [ -n "$TC_CMD" ] && [ "$TC_CMD" != "null" ]; then
-        timeout 45 bash -lc "$TC_CMD" >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 \
+        timeout "$TC_TO" bash -lc "$TC_CMD" >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 \
           || FAILED+=("typecheck:$stack_id")
       fi
       ;;
@@ -113,15 +122,15 @@ for stack_id in $STACK_IDS; do
     strict)
       # Full lint + full typecheck + full format:check
       if [ -n "$LINT_CMD" ] && [ "$LINT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$LINT_CMD" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
+        timeout "$LINT_TO" bash -lc "$LINT_CMD" >"$LOG_DIR/stop-lint-$stack_id.log" 2>&1 \
           || FAILED+=("lint:$stack_id")
       fi
       if [ -n "$TC_CMD" ] && [ "$TC_CMD" != "null" ]; then
-        timeout 45 bash -lc "$TC_CMD" >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 \
+        timeout "$TC_TO" bash -lc "$TC_CMD" >"$LOG_DIR/stop-typecheck-$stack_id.log" 2>&1 \
           || FAILED+=("typecheck:$stack_id")
       fi
       if [ -n "$FMT_CMD" ] && [ "$FMT_CMD" != "null" ]; then
-        timeout 30 bash -lc "$FMT_CMD" >"$LOG_DIR/stop-format-$stack_id.log" 2>&1 \
+        timeout "$FMT_TO" bash -lc "$FMT_CMD" >"$LOG_DIR/stop-format-$stack_id.log" 2>&1 \
           || FAILED+=("format:$stack_id")
       fi
       ;;

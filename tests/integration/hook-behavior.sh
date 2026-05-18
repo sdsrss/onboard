@@ -39,6 +39,20 @@ gb_decision() {
   fi
 }
 
+# Same as gb_decision but with ONBOARD_FORBIDDEN_COMMANDS set (v2.12.0).
+gb_with_env() {
+  local env="$1"
+  local cmd="$2"
+  local out
+  out=$(printf '%s' "{\"tool_input\":{\"command\":$(jq -Rs . <<<"$cmd")}}" \
+    | ONBOARD_FORBIDDEN_COMMANDS="$env" "$HOOKS/guard-bash.sh" 2>/dev/null)
+  if [ -z "$out" ]; then
+    echo "allow"
+  else
+    echo "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"'
+  fi
+}
+
 hdr "P-B1 · guard-bash must NOT deny legitimate subpath removals"
 for legit in \
     'rm -rf /tmp/foo' \
@@ -123,6 +137,73 @@ do
   fi
 done
 
+hdr "H2 · ONBOARD_FORBIDDEN_COMMANDS (v2.12.0)"
+
+# Empty env (default) → no project-level deny.
+d=$(gb_with_env '' 'flyctl deploy --strategy=immediate')
+if [ "$d" = "allow" ]; then
+  pass "empty env: legitimate command allowed"
+else
+  fail "empty env should NOT deny (got $d)"
+fi
+d=$(gb_with_env '' 'psql -c "SELECT 1"')
+if [ "$d" = "allow" ]; then
+  pass "empty env: harmless psql allowed"
+else
+  fail "empty env should NOT deny psql (got $d)"
+fi
+
+# Single pattern → deny on match.
+PROD_DEPLOY='flyctl deploy.*--strategy=immediate'
+d=$(gb_with_env "$PROD_DEPLOY" 'flyctl deploy --strategy=immediate -a prod')
+[ "$d" = "deny" ] && pass "single-pattern denies flyctl prod deploy" \
+  || fail "single-pattern miss: flyctl prod deploy (got $d)"
+
+# Single pattern → allow when no match (same env, different command).
+d=$(gb_with_env "$PROD_DEPLOY" 'flyctl deploy --strategy=rolling -a staging')
+[ "$d" = "allow" ] && pass "single-pattern allows non-matching variant" \
+  || fail "single-pattern false-positive on rolling deploy (got $d)"
+
+# Multi-pattern via newline → either matches denies.
+# Newline separator lets POSIX char classes [[:space:]] / [[:alpha:]] etc
+# work inside individual patterns without being split.
+MULTI=$'flyctl deploy.*--strategy=immediate\npsql.*DROP[[:space:]]+TABLE'
+d=$(gb_with_env "$MULTI" 'psql prod -c "DROP TABLE users"')
+[ "$d" = "deny" ] && pass "multi-pattern: second arm denies DROP TABLE" \
+  || fail "multi-pattern second arm miss (got $d)"
+d=$(gb_with_env "$MULTI" 'flyctl deploy --strategy=immediate -a prod')
+[ "$d" = "deny" ] && pass "multi-pattern: first arm still denies" \
+  || fail "multi-pattern first arm miss (got $d)"
+d=$(gb_with_env "$MULTI" 'rails db:migrate')
+[ "$d" = "allow" ] && pass "multi-pattern: neither matches → allow" \
+  || fail "multi-pattern false-positive on rails migrate (got $d)"
+
+# POSIX char class works inside a pattern (the regression motivating
+# the newline-separator design choice).
+d=$(gb_with_env 'kubectl[[:space:]]+delete[[:space:]]+namespace' 'kubectl delete namespace prod')
+[ "$d" = "deny" ] && pass "POSIX char class [[:space:]] works inside pattern" \
+  || fail "POSIX char class broken (got $d)"
+
+# Empty trailing slot from leading/trailing newline must not deny everything.
+d=$(gb_with_env $'\nflyctl deploy\n' 'echo hi')
+[ "$d" = "allow" ] && pass "leading/trailing newline: empty slots ignored" \
+  || fail "leading/trailing newline should not deny unrelated command (got $d)"
+
+# Built-in dangerous patterns still fire even with env set.
+d=$(gb_with_env 'flyctl deploy' 'rm -rf /')
+[ "$d" = "deny" ] && pass "built-in deny fires alongside env" \
+  || fail "built-in disabled by env? (got $d)"
+
+# Reason string explicitly cites the env source for debuggability.
+REASON=$(printf '%s' "{\"tool_input\":{\"command\":\"flyctl deploy --strategy=immediate\"}}" \
+  | ONBOARD_FORBIDDEN_COMMANDS="$PROD_DEPLOY" "$HOOKS/guard-bash.sh" 2>/dev/null \
+  | jq -r '.hookSpecificOutput.permissionDecisionReason')
+if echo "$REASON" | grep -q 'ONBOARD_FORBIDDEN_COMMANDS'; then
+  pass "deny reason cites ONBOARD_FORBIDDEN_COMMANDS source"
+else
+  fail "deny reason does NOT mention env source (got: $REASON)"
+fi
+
 hdr "P-B2 + P-B4 · stop-verify honors ONBOARD_LOG_DIR + survives whitespace filenames"
 SV_HOME="$SANDBOX/sv"
 LOG_DIR="$SV_HOME/local-only-logs"
@@ -179,6 +260,128 @@ if grep -qE '^arg<src/has space\.ts>$' "$LOG_DIR/stop-lint-ts.log"; then
   pass "filename with space arrived as a single arg"
 else
   fail "filename-with-space was word-split (log: $(cat "$LOG_DIR/stop-lint-ts.log"))"
+fi
+
+hdr "H3 · stop-verify per-stack timeout (v2.12.0)"
+H3_HOME="$SANDBOX/h3"
+H3_LOGS="$H3_HOME/logs"
+mkdir -p "$H3_HOME" "$H3_LOGS"
+
+# Lint wrapper that sleeps 3s — short enough not to slow tests, long enough
+# to differentiate timeout=1 (fires) vs timeout=5 (succeeds).
+cat > "$H3_HOME/slow-lint.sh" <<'EOF'
+#!/usr/bin/env bash
+sleep 3
+echo "ok"
+EOF
+chmod +x "$H3_HOME/slow-lint.sh"
+
+# Case A: default timeout (30s) easily covers 3s sleep → lint passes.
+cat > "$H3_HOME/stacks-default.json" <<EOF
+[
+  {
+    "id": "slow",
+    "extensions": [".ts"],
+    "lint_cmd": "$H3_HOME/slow-lint.sh"
+  }
+]
+EOF
+printf 'src/a.ts\n' > "$H3_HOME/touched.txt"
+
+CLAUDE_PROJECT_DIR="$H3_HOME" \
+ONBOARD_STACKS_FILE="$H3_HOME/stacks-default.json" \
+ONBOARD_TOUCHED_LOG="$H3_HOME/touched.txt" \
+ONBOARD_LOG_DIR="$H3_LOGS" \
+ONBOARD_STOP_MODE=light \
+bash "$HOOKS/stop-verify.sh" < <(echo '{}') >"$H3_HOME/default.out" 2>&1
+if ! grep -q '"decision": "block"' "$H3_HOME/default.out"; then
+  pass "default 30s timeout allows 3s lint to complete (no block)"
+else
+  fail "default timeout fired on 3s lint (output: $(cat "$H3_HOME/default.out"))"
+fi
+
+# Case B: tight override (lint_timeout_sec=1) → lint killed → Stop block.
+cat > "$H3_HOME/stacks-tight.json" <<EOF
+[
+  {
+    "id": "slow",
+    "extensions": [".ts"],
+    "lint_cmd": "$H3_HOME/slow-lint.sh",
+    "lint_timeout_sec": 1
+  }
+]
+EOF
+printf 'src/a.ts\n' > "$H3_HOME/touched.txt"
+
+CLAUDE_PROJECT_DIR="$H3_HOME" \
+ONBOARD_STACKS_FILE="$H3_HOME/stacks-tight.json" \
+ONBOARD_TOUCHED_LOG="$H3_HOME/touched.txt" \
+ONBOARD_LOG_DIR="$H3_LOGS" \
+ONBOARD_STOP_MODE=light \
+bash "$HOOKS/stop-verify.sh" < <(echo '{}') >"$H3_HOME/tight.out" 2>&1
+if grep -q '"decision": "block"' "$H3_HOME/tight.out"; then
+  pass "lint_timeout_sec=1 fires on 3s lint (Stop block)"
+else
+  fail "lint_timeout_sec=1 did NOT fire (output: $(cat "$H3_HOME/tight.out"))"
+fi
+
+# Case C: typecheck_timeout_sec override (standard mode triggers typecheck).
+cat > "$H3_HOME/stacks-tc.json" <<EOF
+[
+  {
+    "id": "slow",
+    "extensions": [".ts"],
+    "lint_cmd": "true",
+    "typecheck_cmd": "$H3_HOME/slow-lint.sh",
+    "typecheck_timeout_sec": 1
+  }
+]
+EOF
+printf 'src/a.ts\n' > "$H3_HOME/touched.txt"
+
+CLAUDE_PROJECT_DIR="$H3_HOME" \
+ONBOARD_STACKS_FILE="$H3_HOME/stacks-tc.json" \
+ONBOARD_TOUCHED_LOG="$H3_HOME/touched.txt" \
+ONBOARD_LOG_DIR="$H3_LOGS" \
+ONBOARD_STOP_MODE=standard \
+bash "$HOOKS/stop-verify.sh" < <(echo '{}') >"$H3_HOME/tc.out" 2>&1
+if grep -q 'typecheck:slow' "$H3_HOME/tc.out"; then
+  pass "typecheck_timeout_sec=1 fires + names failed check"
+else
+  fail "typecheck_timeout_sec=1 did NOT fire (output: $(cat "$H3_HOME/tc.out"))"
+fi
+
+# Case D: post-edit-check.sh honors format_check_timeout_sec.
+PEC_H3="$SANDBOX/pec-h3"
+PEC_H3_LOGS="$PEC_H3/logs"
+mkdir -p "$PEC_H3" "$PEC_H3_LOGS"
+
+cat > "$PEC_H3/slow-fmt.sh" <<'EOF'
+#!/usr/bin/env bash
+sleep 3
+EOF
+chmod +x "$PEC_H3/slow-fmt.sh"
+
+cat > "$PEC_H3/stacks.json" <<EOF
+[
+  {
+    "id": "slow",
+    "extensions": [".ts"],
+    "format_check_cmd": "$PEC_H3/slow-fmt.sh",
+    "format_check_timeout_sec": 1
+  }
+]
+EOF
+
+CLAUDE_PROJECT_DIR="$PEC_H3" \
+ONBOARD_STACKS_FILE="$PEC_H3/stacks.json" \
+ONBOARD_TOUCHED_LOG="$PEC_H3/touched.txt" \
+ONBOARD_LOG_DIR="$PEC_H3_LOGS" \
+bash "$HOOKS/post-edit-check.sh" < <(echo '{"tool_input":{"file_path":"src/a.ts"}}') >"$PEC_H3/out" 2>"$PEC_H3/err"
+if grep -q 'format check failed' "$PEC_H3/err"; then
+  pass "post-edit-check format_check_timeout_sec=1 fires + emits warning"
+else
+  fail "post-edit-check format_check_timeout_sec=1 did NOT fire (err: $(cat "$PEC_H3/err"))"
 fi
 
 hdr "P-B2 · post-edit-check honors ONBOARD_LOG_DIR"

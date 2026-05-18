@@ -45,4 +45,30 @@ for pat in "${BLOCK_PATTERNS[@]}"; do
   fi
 done
 
+# Project-level command deny (v2.12.0): newline-separated regex list from env.
+# Symmetric to ONBOARD_FORBIDDEN_PATHS in guard-edit.sh — addresses the
+# asymmetry the audit flagged (Iron Law 16 had global zones for paths but no
+# equivalent for commands; users couldn't say "this repo forbids prod migrations
+# from a local shell"). Newline (NOT colon) is the separator so POSIX char
+# classes `[[:space:]]` / `[[:alpha:]]` / etc work freely inside patterns —
+# the colon-split form would fragment `[[:space:]]` into 3 broken pieces.
+# JSON shorthand: write `\n` in settings.json strings, which decodes to a
+# real newline byte before the env var hits this hook. Patterns are
+# `grep -qE` (ERE) regex; empty lines (incl. leading/trailing) skipped.
+if [ -n "${ONBOARD_FORBIDDEN_COMMANDS:-}" ]; then
+  while IFS= read -r pat; do
+    [ -z "$pat" ] && continue
+    if echo "$COMMAND" | grep -qE "$pat"; then
+      jq -n --arg reason "Blocked by ONBOARD_FORBIDDEN_COMMANDS pattern: $pat" '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: $reason
+        }
+      }'
+      exit 0
+    fi
+  done <<< "$ONBOARD_FORBIDDEN_COMMANDS"
+fi
+
 exit 0

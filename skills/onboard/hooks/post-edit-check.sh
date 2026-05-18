@@ -50,9 +50,16 @@ if [ -n "${ONBOARD_STACKS_FILE:-}" ] && [ -f "$ONBOARD_STACKS_FILE" ]; then
   CMD=$(jq -r --arg ext "$EXT" '
     .[] | select(.extensions | index($ext)) | .format_check_cmd // empty
   ' "$ONBOARD_STACKS_FILE" 2>/dev/null | head -1)
+  # Per-stack format-check timeout (v2.12.0). Default 10s; Python `black --check`
+  # cold start has been observed at 5-8s, so 10s is a tight default — projects
+  # with slow formatters can override via stacks.json `format_check_timeout_sec`.
+  FMT_CHECK_TO=$(jq -r --arg ext "$EXT" '
+    .[] | select(.extensions | index($ext)) | .format_check_timeout_sec // 10
+  ' "$ONBOARD_STACKS_FILE" 2>/dev/null | head -1)
+  [ -z "$FMT_CHECK_TO" ] && FMT_CHECK_TO=10
 
   if [ -n "$CMD" ] && [ "$CMD" != "null" ]; then
-    if ! timeout 10 bash -lc "$CMD" >"$LOG" 2>&1; then
+    if ! timeout "$FMT_CHECK_TO" bash -lc "$CMD" >"$LOG" 2>&1; then
       echo "Post-edit warning: $EXT format check failed for $FILE_PATH. Stop hook will enforce later." >&2
     fi
   fi
