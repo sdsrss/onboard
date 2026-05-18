@@ -1,12 +1,12 @@
 ---
 name: onboard
 description: 旧项目接入 Claude Code 的标准化引导流程
-argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor] [--uninstall] [--allow-large-claude-md]"
+argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor] [--uninstall[=skill|all]] [--allow-large-claude-md]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v2.10.2)
+# /onboard — Legacy Project Onboarding Protocol (v2.11.0)
 
 参数：`$ARGUMENTS`
 
@@ -73,7 +73,7 @@ allowed-tools: Read, Glob, Grep
 - `--strict`：任何验证失败立即中止整个流程。
 - `--isolate-branch`（v2.4 新增）：在专用 git 分支 `chore/onboarding-<timestamp>` 上执行写入阶段。失败/不满意切回原分支即可整体回滚。**仅在 `--share` 模式下有意义**；local-only 模式文件均不入仓，分支隔离无收益（Phase 0 检测到 `--local-only --isolate-branch` 组合会发出 warn，但不阻断）。
 - `--doctor`（v2.5 新增）：诊断模式。不跑任何 Phase，不写 PROJECT/OUTPUT，仅做健康检查 + RUNTIME log。详见下文「Doctor Mode」章节。
-- `--uninstall`（v2.8 新增）：卸载模式。按 marker / manifest 反向移除 onboard 在本项目写入的所有内容，提供 snapshot restore 选项。详见下文「Uninstall Mode」章节。
+- `--uninstall[=skill|all]`（v2.8 新增；v2.11 参数化）：卸载模式。`=skill` 只卸 user-global skill 包 + plugin cache + mirror，**保留项目侧所有 onboard 写入**（hook 脚本、settings 引用、CLAUDE.md 内容）；`=all`（裸 `--uninstall` 等价，向后兼容 v2.8+）卸 user-global + 项目侧全部 onboard 痕迹。详见下文「Uninstall Mode」章节。
 - `--allow-large-claude-md`（v2.7 新增）：覆盖 CLAUDE.md token 硬上限 5000。仅在项目实测确需超长 CLAUDE.md 时使用；触发 Phase 3 hard AUTH 并标 `phase_3.token_budget_override: true`。
 
 `--resume`、`--update`、`--doctor`、`--uninstall` 四者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。
@@ -116,6 +116,7 @@ next:     <下一阶段或建议>
 | `.gitignore` 改动 | **不改**（零团队污染） | 修订（按 Case A/B） |
 | `.git/info/exclude` 注入 | 注入所有 OUTPUT + RUNTIME 路径 | 仅注入 RUNTIME 路径 |
 | `.git/hooks/*` 安装 | 默认 yes（per-clone，本就不入仓） | 按 Phase 6 决策 |
+| Skill 卸载后保留的 hook 脚本副本（v2.11） | `.claude/onboard-keeper/hooks/`（`--uninstall=skill` 后自动生成；加入 `.git/info/exclude`；详见 Uninstall Mode 章节 §`=skill` 流程） | N/A（share 模式 hook 已在项目内 `.claude/skills/onboard/hooks/`，本就独立） |
 
 ### 模式不变量
 
@@ -605,8 +606,9 @@ next:         Phase 1 (Discovery)
 | `<dir>/package.json` + lockfile | Node 栈，paths=[dir]，包管理器按 lockfile |
 | `<dir>/pyproject.toml` / `<dir>/Pipfile` / `<dir>/requirements.txt` | Python 栈 |
 | `<dir>/go.mod` / `<dir>/Cargo.toml` / 其余 | 对应栈 |
+| **根级** `.claude-plugin/plugin.json` + (`hooks/` 或 `skills/` 或 `commands/` 或 `agents/` 或 `.mcp.json`) | **CC plugin 栈**（v2.11），paths=[root]，**secondary overlay**：若同时检出 JS / Python / Shell 源文件 → 与对应语言栈并存，记录 `cc_plugin: true` 标志 |
 
-每个栈独立记录：`{ id, language, paths[], package_manager, frameworks[], size }`。
+每个栈独立记录：`{ id, language, paths[], package_manager, frameworks[], size, cc_plugin? }`。
 
 **根级聚合层**单独识别：`Makefile` / `justfile` / `Taskfile.yml` / `pnpm-workspace.yaml` / `turbo.json`——这些跨栈协调，不归属任何单栈。
 
@@ -652,6 +654,7 @@ ci_commands_extracted:
 2. 文件名含 `legacy` / `deprecated` / `vendor` / `third_party` 的目录
 3. `CODEOWNERS` 中标注 `@no-modify` 或类似
 4. 已有 CLAUDE.md 中 `## Forbidden` 节列出的路径
+5. **CC plugin 项目**（v2.11，stack `cc_plugin: true` 时）：`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` + `.mcp.json` — 这些由 Claude Code 严格 schema 解析，手编辑易破坏 plugin install / marketplace 索引
 
 ### 报告结构
 
@@ -765,9 +768,9 @@ Value 不匹配 `allowed_values` 一律拒绝，不接受同义词、自由文�
 | A3 | `module_dep_direction` | 对每个顶层 src 目录抽样 import/from 语句；统计跨目录指向；标 one-way / 双向 / 禁止；多语言用 OpenAPI/protobuf 桥接的特殊标 `via codegen` | CLAUDE.md `## Layout` 每行末尾 `imports → ...` |
 | A4 | `generated_code_dirs` | grep `GENERATED` / `DO NOT EDIT` / `auto-generated` 文件头；找 codegen 脚本（`*.codegen.*` / `schema.graphql` + `*.generated.*` / protoc 输出目录） | CLAUDE.md `## Layout` 行内标 `generated; regenerate via <cmd>` |
 | A5 | `naming_convention_anomaly` | 抽样标识符（文件名 + top-level export），按目录分布统计 camelCase / snake_case / kebab-case / PascalCase；**仅在不一致时输出**（一致是项目常态，不写） | CLAUDE.md `## Layout` 行内注 `(uses snake_case)` 或 `(mixed)` |
-| A6 | `behavioral_donts` | 数据源（按命中优先级排）：`CONTRIBUTING.md`/`CODE_STYLE.md` 中 "do not"/"never"/"always X first"；CHANGELOG/commit msg 中 `revert`/`hotfix`/`broke`/`outage`/`incident`；CI 必跑步骤本地缺；自定义 `.git/hooks/*`；`pre-commit`/`lefthook` 各规则；ADR `deprecated`/`do not use` | CLAUDE.md `## Don't` |
+| A6 | `behavioral_donts` | 数据源（按命中优先级排）：`CONTRIBUTING.md`/`CODE_STYLE.md` 中 "do not"/"never"/"always X first"；CHANGELOG/commit msg 中 `revert`/`hotfix`/`broke`/`outage`/`incident`；CI 必跑步骤本地缺；自定义 `.git/hooks/*`；`pre-commit`/`lefthook` 各规则；ADR `deprecated`/`do not use`；**version-sync 脚本**（v2.11）：`scripts/sync-version*` / `scripts/version-bump*` 写入 ≥2 manifest 文件 → 同步目标列为 don't-edit-directly（手编辑会被脚本下次同步覆盖） | CLAUDE.md `## Don't` |
 | A7 | `coverage_signal` | 检 `.coveragerc` / `jest.config.* coverageThreshold` / `vitest.config.* coverage` / `pyproject.toml [tool.coverage]` / CI 中 `--cov-fail-under` / `bc -l` 阈值 | CLAUDE.md `## Tests` 的 `Coverage:` 子项 |
-| A8 | `forbidden_zones_v2` | Phase 1 的目录禁区基础上加：`CODEOWNERS` 中 `@no-modify` / `@archived` 注解的 path；显式 `.git/info/attributes` `merge=ours` 路径；`.gitattributes export-ignore`（含部署免疫的源） | CLAUDE.md `## Rules` + state `confirmed_forbidden_zones` |
+| A8 | `forbidden_zones_v2` | Phase 1 的目录禁区基础上加：`CODEOWNERS` 中 `@no-modify` / `@archived` 注解的 path；显式 `.git/info/attributes` `merge=ours` 路径；`.gitattributes export-ignore`（含部署免疫的源）；**CC plugin 项目**（v2.11）：`.claude-plugin/{plugin,marketplace}.json` + `.mcp.json`（Claude Code 严格 schema，手编辑破坏 plugin install） | CLAUDE.md `## Rules` + state `confirmed_forbidden_zones` |
 
 ### 行格式约束（"每行都有用"的工程化）
 
@@ -1038,6 +1041,12 @@ Install Plan 在 `--update` 时只列出**新出现的缺失项**（与上次比
 ## Type
 <one-line stack 描述>. Size: <small|medium|large> (<N> files, <M> packages).
 
+## Plugin (仅 CC plugin 项目，stack `cc_plugin: true` 时输出，v2.11 新增)
+- Manifests: `.claude-plugin/plugin.json` (canonical schema only)[, `.claude-plugin/marketplace.json` (catalog)]
+- Components auto-discovered: <skills/commands/agents/hooks/.mcp.json/.lsp.json 中实际存在的>
+- Install topology: `/plugin marketplace add <source>` → `~/.claude/plugins/cache/<plugin>@<source>@<ver>/` (ephemeral path; 每次 update 变)
+- Hook path strategy: <mirror|direct opt-in> (若 hooks/ 存在)
+
 ## Run
 - Dev:   <cmd>  [| <variant>: <cmd>]
 - Build: <cmd>
@@ -1133,6 +1142,7 @@ fi
 - **`## Don't` 节**：每行 ≤ 100 chars + 1 行（违规 fail）
 - **Token 预算**：≤ 2500（soft）或 < 5000（hard）或 override 已记录
 - 若有 confirmed forbidden zones，`## Rules` 必须列全
+- **CC plugin 项目**（v2.11）：若 Phase 1 检出 `cc_plugin: true` 栈 → `## Plugin` 节必须出现且含 Manifests / Components / Install topology 三行；非 CC plugin 项目 → `## Plugin` 节整段不出（与"无内容的节不写"规则一致）
 
 ---
 
@@ -1248,7 +1258,8 @@ raw log 全部落盘 `.claude/onboarding-logs/`。
 2. `.pre-commit-config.yaml` → pre-commit
 3. `lefthook.yml` → lefthook
 4. `package.json` 中有 `simple-git-hooks` → simple-git-hooks
-5. 无信号 → Phase 2 互斥组产出多个候选：
+5. **`package.json scripts.prepare` 含 `.git/hooks/` 写入**（v2.11 新增；grep `prepare` 字段值匹配 `.git/hooks/`，典型形态 `ln -sf ... .git/hooks/pre-commit`） → `hook-prepare-script`：已存在 ad-hoc hook 框架，**标 third-party 共存**，不动用户脚本；onboard 不再走 hook-local 候选
+6. 无信号 → Phase 2 互斥组产出多个候选：
    - `hook-local`：本机 `.git/hooks/*`
    - `hook-husky` / `hook-pre-commit-fw` / `hook-lefthook`：入仓
    - **多栈项目默认推荐 `hook-lefthook`**（语言无关，跨栈聚合好）
@@ -2061,25 +2072,119 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## Uninstall Mode（v2.8 新增）
+## Uninstall Mode（v2.8 新增；v2.11 三层模型 + 双模式重写）
 
-**触发**：`/onboard --uninstall`。**不跑任何 Phase**，按 manifest + marker 反向移除 onboard 在本项目的所有写入；不动 marker 块外的内容。
+**触发**：`/onboard --uninstall[=skill|all]`。**不跑任何 Phase**，按 manifest + marker 反向移除 onboard 写入。
 
 **前置**：当前目录是 git 仓库 + 存在 onboard manifest（`.claude/local-only/onboard-manifest.json` 或 `.claude/onboard-manifest.json`）。无 manifest 时拒绝自动卸载（fallback 到手动指引）。
 
-### 动作（按顺序）
+### 三层状态模型（v2.11 新增）
+
+onboard 的"状态"分布在三层，卸载语义按层精确切分：
+
+| 层 | 状态位置 | `=skill` 清 | `=all` 清 |
+|---|---|---|---|
+| **L1 user-global** | `~/.claude/skills/onboard/`、`~/.claude/plugins/cache/onboard@<ver>/`（plugin 安装时）、`~/.claude/onboard-runtime/hooks/`（mirror dir） | ✓ | ✓ |
+| **L2 project-config** | `.claude/settings.local.json`（或 `settings.json`）中的 hook 条目 + env keys、CLAUDE.local.md / CLAUDE.md 中的 marker 块、`.git/info/exclude` / `.gitignore` 中的 marker 块 | ✗（保留） | ✓ |
+| **L3 project-files** | hook 脚本本体（share 模式：`.claude/skills/onboard/hooks/*.sh`；local-only 模式：原本指向 L1，`=skill` 时被本地化到 `.claude/onboard-keeper/hooks/`）、`.claude/local-only/onboarding-state.json`、`stacks.json`、snapshots 目录 | ✗（保留，必要时本地化） | ✓ |
+
+**直观区分**：`=skill` "禁用 `/onboard` 命令但不影响已 onboarded 项目运转"；`=all` "彻底卸 + 项目还原到 pre-onboard"。
+
+### 模式 1：`--uninstall=skill` 流程
+
+**目标**：移除 L1 user-global，保留 L2 + L3。**前置不变量**：执行后所有已 onboarded 项目的 hook 路径仍指向有效文件。
+
+```
+─── /onboard --uninstall=skill ───
+status: in-progress
+mode:   skill (L1 only; L2 + L3 preserved)
+```
+
+1. **检测 install source**（从 manifest 或 `.claude/settings*.json` hook command 路径反推）：
+   - `user-skill`（`install.sh install`） → L1 在 `~/.claude/skills/onboard/`
+   - `plugin`（`/plugin install onboard`） → L1 在 `~/.claude/plugins/cache/onboard@<ver>/` + mirror
+   - `project-skill`（共享 skill clone 到项目内） → L1 = L3，`=skill` 在此场景 no-op-on-L1（仅清 mirror dir）
+2. **本地化 hooks**（**仅 local-only 模式 + L1 即将消失时执行**，per 元规则 26）：
+   ```bash
+   KEEPER="$CLAUDE_PROJECT_DIR/.claude/onboard-keeper/hooks"
+   SKILL_SRC="$HOME/.claude/skills/onboard"   # 或 ${CLAUDE_PLUGIN_ROOT}/skills/onboard
+
+   mkdir -p "$KEEPER" "$KEEPER/../scripts"
+   cp -a "$SKILL_SRC/hooks/." "$KEEPER/"
+   cp -a "$SKILL_SRC/scripts/mirror-hooks.sh" "$KEEPER/../scripts/" 2>/dev/null || true
+   chmod +x "$KEEPER"/*.sh "$KEEPER/../scripts/"*.sh 2>/dev/null || true
+   ```
+   - **Atomic settings.local.json 重写**（先 snapshot 再 jq 改写）：
+     ```bash
+     # snapshot per 元规则 21
+     cp .claude/settings.local.json \
+        .claude/local-only/onboard-snapshots/settings.local.json.$(date -u +%Y%m%dT%H%M%SZ).uninstall-skill.pre
+
+     # jq atomic edit: tmp + mv
+     jq '(.hooks[].[]?.hooks[]?.command) |= sub("\\$\\{HOME\\}/\\.claude/skills/onboard/"; "${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/")' \
+       .claude/settings.local.json > .claude/settings.local.json.tmp \
+       && mv .claude/settings.local.json.tmp .claude/settings.local.json
+     ```
+   - 写入 `.git/info/exclude`（marker 块内）：`.claude/onboard-keeper/`
+   - 更新 `onboard-manifest.json`：追加 `keeper_dir: ".claude/onboard-keeper/"` + `mode_after_skill_uninstall: "keeper-localized"`
+   - **回滚**：任一步骤失败 → 用 snapshot 还原 settings.local.json + `rm -rf .claude/onboard-keeper/` + abort 整个 `=skill` 流程
+3. **干跑预览 + 单次 hard AUTH**：
+   ```
+   Skill-uninstall plan:
+     [L1] Remove: ~/.claude/skills/onboard/                       (or via /plugin uninstall onboard)
+     [L1] Remove: ~/.claude/onboard-runtime/hooks/                (plugin mode mirror, if present)
+     [L1] Remove: ~/.claude/.cache/onboard-source/                (install.sh stage cache)
+     [L3] Localized: .claude/onboard-keeper/hooks/{4 hooks,scripts/mirror-hooks.sh}  ← 上一步已就位
+     [L2] Preserved: .claude/settings.local.json (paths rewritten to onboard-keeper)
+     [L2] Preserved: CLAUDE.local.md (managed block intact)
+     [L2] Preserved: .git/info/exclude (marker block intact + keeper line appended)
+
+   /onboard slash command will become unavailable after this step.
+   Hooks continue to run from .claude/onboard-keeper/.
+   Proceed? [Y/n]
+   ```
+4. **执行 L1 移除**（非交互调用 install.sh，per 元规则 25 + 元规则 22 hard-AUTH-per-mode 已在 step 3 一次拿下）：
+   - **`install.sh install` 来源**：`ONBOARD_CONFIRM_UNINSTALL=yes ONBOARD_UNINSTALL_MODE=skill bash "$SKILL_DIR/install.sh" uninstall`
+   - **`/plugin install` 来源**：consumer Claude 不能驱动 `/plugin uninstall`（slash 命令归用户）；stdout 打印：
+     ```
+     L1 cleanup (run manually in your Claude Code session):
+       /plugin uninstall onboard
+
+     The mirror dir at ~/.claude/onboard-runtime/hooks/ has been cleared.
+     ```
+     + 写 state file `phase_uninstall.plugin_cleanup_pending: true`，下次 `--doctor` 提示用户跑
+   - **`project-skill` 来源**：L1 = L3，跳过 L1 移除步骤
+5. **最终输出**：
+   ```
+   status: done
+   mode:   skill
+   actions:
+     - L1 removed:   ~/.claude/skills/onboard/  (+ mirror, + stage cache)
+     - L3 localized: .claude/onboard-keeper/ (4 hooks + mirror-hooks.sh, +x)
+     - L2 rewritten: .claude/settings.local.json (4 command paths → keeper)
+   next: hooks continue firing from keeper; CLAUDE.local.md and forbidden zones unchanged.
+         To fully remove later:  /onboard --uninstall=all
+   ```
+
+### 模式 2：`--uninstall=all` 流程（v2.8 行为 + L1 整合）
+
+**目标**：清三层。等同于"`=skill` + project-side manifest-driven removal"。
 
 1. **读取 manifest**：确定 mode 与 managed files / blocks / settings paths
-2. **干跑预览**（强制 hard AUTH）：
+2. **干跑预览**（强制 hard AUTH；每类删除单独 AUTH，**不**用 batch AUTH，per 元规则 22）：
    ```
-   Uninstall plan:
-     - Remove file:       .claude/local-only/onboarding-state.json (12 KB)
-     - Remove file:       .claude/local-only/onboarding-logs/ (5 files, 84 KB)
-     - Remove file:       .claude/local-only/onboard-snapshots/ (12 files, 256 KB)
-     - Remove file:       .claude/local-only/stacks.json
-     - Remove file:       CLAUDE.local.md (managed block; non-onboard content preserved)
-     - Remove file:       .claude/settings.local.json (4 hook entries + 4 env keys)
-     - Edit:              .git/info/exclude (remove block between markers, 7 lines)
+   Uninstall plan (mode=all):
+     [L1] Remove file:    ~/.claude/skills/onboard/  (or /plugin uninstall onboard)
+     [L1] Remove file:    ~/.claude/onboard-runtime/hooks/  (if present)
+     [L1] Remove file:    ~/.claude/.cache/onboard-source/
+     [L2] Edit file:      .claude/settings.local.json (4 hook entries + 4 env keys)
+     [L2] Edit file:      CLAUDE.local.md (managed block; non-onboard content preserved)
+     [L2] Edit file:      .git/info/exclude (remove block between markers, 7 lines)
+     [L3] Remove file:    .claude/local-only/onboarding-state.json (12 KB)
+     [L3] Remove file:    .claude/local-only/onboarding-logs/ (5 files, 84 KB)
+     [L3] Remove file:    .claude/local-only/onboard-snapshots/ (12 files, 256 KB)
+     [L3] Remove file:    .claude/local-only/stacks.json
+     [L3] Remove file:    .claude/onboard-keeper/  (if previously created by =skill)
 
    Snapshots available for restore (oldest first):
      - CLAUDE.local.md.20260514T160000Z.phase3.pre  → pre-onboard state (recommended)
@@ -2087,36 +2192,42 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
    Proceed? [Y/n/restore-snapshot]
    ```
-3. **用户确认后执行**（每类一次 §5 hard AUTH，**不**用 batch AUTH——卸载是单方向不可逆操作）：
-   - 逐 file 删除 / 编辑（marker 块内）
-   - JSON 文件：jq 过滤 `_onboard_managed: true` 项 + 删除 `_onboard_managed_env_keys` 列出的 env key
-   - 删除空 hook 数组 / 空 env 对象（如果 onboard 是该 settings 唯一来源）
-   - 保留 settings 文件本身（用户可能有自己的内容）
-4. **restore-snapshot 流程**（用户选了 restore 而非 remove）：
+3. **用户确认后执行**：
+   - L1 清理：调用 `=skill` 流程的 step 4（但**跳过** step 2 本地化——`=all` 下 L3 也要删除）
+   - L2 清理：逐 file 编辑 marker 块；JSON 用 jq 过滤 `_onboard_managed: true` + 删除 `_onboard_managed_env_keys` 列出的 env key；删除空 hook 数组 / 空 env 对象（若 onboard 是 settings 唯一来源）；保留 settings 文件本身
+   - L3 清理：rm `.claude/local-only/`、rm `.claude/onboard-keeper/`（若存在）
+4. **restore-snapshot 流程**（用户选 restore 而非 remove）：
    - 列出每个 managed file 的最早 pre-modify snapshot
    - 用 `cp <snapshot> <original>` 恢复
    - 删除 onboard 在该文件之外的写入（如 `.git/info/exclude` 块）
-5. **最终清理**：
-   - 删除 manifest 自身
-   - 删除 state file
-   - 删除 snapshots 目录（用户也可保留备查）
+   - L1 仍然移除（snapshot 不涵盖 L1）
+5. **最终清理**：删除 manifest 自身、state file、snapshots 目录（用户也可保留备查）
 6. **不动**：
    - 用户在 marker 块外的内容
    - 用户在 `.claude/settings.local.json` 中自己加的、不带 `_onboard_managed` 标记的 hook 项
-   - 全局安装的 skill 文件（`~/.claude/skills/onboard/`）—— 这些用 `install.sh uninstall` 处理
    - 项目内已 commit 的内容（share 模式：用户应自行 `git revert` 之前 commit 的 onboard PR）
+
+### 默认值约定（v2.11）
+
+- 裸 `--uninstall`（无 `=value`） ≡ `--uninstall=all`（向后兼容 v2.8+ 用户）
+- consumer Claude 在 Phase 0 解析参数时按此映射
 
 ### Iron Law 边界
 
 - **Iron Law 14（No file-level reset on PROJECT）**：卸载使用 atomic write（写到临时文件 + rename）而非 `git checkout` / `git restore`
-- **Iron Law 16（Forbidden zones global）**：卸载完毕后 `confirmed_forbidden_zones` 在所有派生位置必须同步消失（manifest / settings env / lint ignore（share 模式）/ hook env）
+- **Iron Law 16（Forbidden zones global）**：`=all` 卸载完毕后 `confirmed_forbidden_zones` 在所有派生位置必须同步消失（manifest / settings env / lint ignore（share 模式）/ hook env）。`=skill` 保留 zones，因为项目仍处于 onboarded 状态
 - **Iron Law 2（No silent overwrite）**：删除 / 编辑前一律展示 diff，**绝不**静默移除
 
 ### 卸载后状态
 
-成功卸载后 `git status` 应只显示：
+成功 `=all` 卸载后 `git status` 应只显示：
 - `--local-only` 模式：0 项变更（local-only 本来就没动 PROJECT）
 - `--share` 模式：列出 onboard 之前 commit 过的入仓文件（提示用户用 `git revert <commit>` 撤回 commit 历史，或保留作为审计痕迹）
+
+成功 `=skill` 卸载后：
+- L2 + L3 完全保留；项目继续按 onboarded 状态运转
+- `/onboard` slash 命令不可用（直到下次 `install.sh install` 或 `/plugin install onboard`）
+- `.claude/onboard-keeper/` 是 LOCAL-SIDE-EFFECT（在 `.git/info/exclude`），不入仓
 
 ### 错误处理
 
@@ -2129,19 +2240,26 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
     4. Edit .claude/settings.local.json: remove entries with "_onboard_managed": true
     5. Edit CLAUDE.local.md: remove content between <!-- >>> /onboard --> markers
        (or delete the file if onboard was the only writer)
+    6. (v2.11) rm -rf .claude/onboard-keeper/  (only if a previous =skill localized hooks here)
   ```
 - Snapshot 损坏 / 缺失 → 跳过 restore 选项，仅提供 remove
 - 任一删除失败 → 中止剩余步骤，输出已完成 / 未完成清单（卸载本身要可重入）
+- `=skill` 模式 hook 本地化任一步失败 → 整个 `=skill` 流程回滚（不允许残留 broken hook 路径，per 元规则 26）
 
-### 与 install.sh uninstall 的分工
+### 与 install.sh uninstall 的分工（v2.11 修订）
 
 | 作用域 | 命令 | 清理什么 |
 |---|---|---|
-| 单个项目内的 onboard 痕迹 | `/onboard --uninstall` | 本节定义的所有内容 |
-| 全局 skill 安装本身 | `install.sh uninstall` 或 `/plugin uninstall onboard` | `~/.claude/skills/onboard/` 整个目录 |
+| L1（user-global）| `install.sh uninstall` 或 SKILL.md 在 `=skill` 流程中非交互调用它 | `~/.claude/skills/onboard/` + stage cache + mirror dir |
+| L1（plugin 安装）| `/plugin uninstall onboard`（用户手动；consumer Claude 仅打印命令） | plugin cache + mirror dir |
+| L2 + L3（项目侧）| `/onboard --uninstall=all` | 本节 §模式 2 定义的所有内容 |
+| 仅 L1（保留项目）| `/onboard --uninstall=skill` | 本节 §模式 1 定义的内容 + 必要时 hook 本地化 |
 | 项目级 skill 副本（share 模式） | `git rm -r .claude/skills/onboard && commit` | 用户手动 |
 
-**强烈建议顺序**：先 per-project `--uninstall`（在每个 onboarded 项目里跑），再 global `install.sh uninstall`。否则 global 卸载后 `/onboard` 命令消失，per-project 清理就得手动了。
+**v2.11 新建议顺序**：
+- 想暂停 `/onboard` 但保留项目配置 → `/onboard --uninstall=skill`
+- 想彻底卸载 → 直接 `/onboard --uninstall=all`（含 L1 + L2 + L3 清理）
+- 旧 v2.8-v2.10 用户：`/onboard --uninstall`（裸） ≡ `=all`，行为不变
 
 ---
 
@@ -2306,7 +2424,7 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 
 ---
 
-## 元规则（给执行此命令的 Claude 实例，v2.9 共 23 条）
+## 元规则（给执行此命令的 Claude 实例，v2.11 共 26 条）
 
 > v2.3 元规则 9-14 与 Iron Laws 16-19 重复，v2.4 已删除冗余。元规则只保留执行操作层面、Iron Laws 不直接涵盖的指引。
 
@@ -2331,6 +2449,9 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 19. **（v2.7）安装永不自动执行系统级命令**：Phase 2.5 Install Plan 中类 2（system CLIs）一律 offer-only；类 1（dev deps）仅 share 模式且 batch AUTH 后才执行；类 4（Claude Code plugins）一律 offer-only。Iron Law 7 在 v2.7 仍完整生效——batch AUTH = explicit AUTH（颗粒度变，语义未变）。
 20. **（v2.8）所有 PROJECT 写入必须可逆**：line-based 文件用 `# >>> /onboard v<ver>` 块标；JSON 用 `_onboard_managed: true` 字段；同时维护 `onboard-manifest.json` 作为权威清单。任何不加 marker / 不写 manifest 的 PROJECT 写入是 §8 SAFETY 违规。
 21. **（v2.8）首次写入前 snapshot**：Phase 3/4/6/7/8 即将修改既有 PROJECT 文件时，**必须**先快照到 `<state-dir>/onboard-snapshots/<name>.<ISO>.phase<N>.pre`，并在 `index.jsonl` 追加记录。无 snapshot 的写入 = 不可逆 = 拒绝执行。
-22. **（v2.8）卸载是单方向不可逆操作**：`--uninstall` **不**用 batch AUTH；每类删除单独 hard AUTH；用户选 restore-snapshot 时优先用 pre-modify 而非 post-install snapshot；卸载本身要可重入（中途失败不留半成品）。
+22. **（v2.8 / v2.11 修订）卸载是单方向不可逆操作**：`--uninstall=all` **不**用 batch AUTH；每类删除单独 hard AUTH；用户选 restore-snapshot 时优先用 pre-modify 而非 post-install snapshot；卸载本身要可重入（中途失败不留半成品）。`--uninstall=skill` 仅卸 L1 user-global 层，本身只触发一次 hard AUTH（"将卸载 skill 但保留项目配置"），但若 local-only 模式必须先完成 hook 本地化（见 元规则 26）才能动 L1。
 23. **（v2.9）Plugin 路径用 `${CLAUDE_PLUGIN_ROOT}` 但禁止硬编码到 user settings**：`${CLAUDE_PLUGIN_ROOT}` 是 plugin 缓存路径（`~/.claude/plugins/cache/onboard@<marketplace>@<ver>/`），每次 plugin update 会变。Phase 7 在 plugin 安装模式下**默认**镜像 hook 到稳定路径（`${HOME}/.claude/onboard-runtime/hooks/`）写入 user settings；要直接引用 `${CLAUDE_PLUGIN_ROOT}` 必须用户显式 opt-in（接受 plugin 升级期间 hook 短暂失效的风险）。
+24. **（v2.11）uninstall 三层语义**：onboard 状态分布在三层 — L1 user-global (`~/.claude/skills/onboard/`、plugin cache、`~/.claude/onboard-runtime/hooks/`)、L2 project-config (`.claude/settings.local.json` 中的 hook 条目 + env keys + `CLAUDE.local.md` managed block + `.git/info/exclude` marker 块)、L3 project-files (hook 脚本本体；share 模式在项目内，local-only 模式默认指向 L1，`=skill` 后本地化到 `.claude/onboard-keeper/hooks/`；`.claude/local-only/onboarding-state.json`、stacks.json、snapshots 目录)。`=skill` 卸 L1；`=all` 卸三层全部。语义违反此模型的卸载实现 = §8 违规。
+25. **（v2.11）uninstall 分层各自 hard AUTH**：`--uninstall=skill` 单次 hard AUTH（"卸 L1 user-global + 保留 L2 + L3"）；`--uninstall=all` 在 skill 单次 AUTH 之外，每个 L2 manifest entry 类（CLAUDE / settings / exclude marker / state-dir / snapshots）单独 hard AUTH。每次 AUTH 都要 diff preview。卸载不接受 batch AUTH 是 元规则 22 的延续。
+26. **（v2.11）skill 卸载必须保 hook 路径连续性**：local-only 模式下 `--uninstall=skill` 必须先 (a) 把 `~/.claude/skills/onboard/{hooks/*,scripts/mirror-hooks.sh}` 复制到 `.claude/onboard-keeper/{hooks/,scripts/}`、(b) jq atomic 重写 `.claude/settings.local.json` 中 4 个 hook `command` 字段（`${HOME}/.claude/skills/onboard/` → `${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/`）、(c) 将 keeper 目录加入 `.git/info/exclude` + 更新 onboard-manifest.json，才能 rm L1 skill 包。任一步失败 → 整个 `--uninstall=skill` 流程原子回滚（不允许残留 broken hook 路径）。share 模式下因 hook 已在 `.claude/skills/onboard/hooks/`（项目内），无须本地化。
 ```

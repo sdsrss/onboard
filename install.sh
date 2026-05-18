@@ -11,10 +11,13 @@
 #   ./install.sh [install|update|uninstall|doctor]
 #
 # Environment:
-#   ONBOARD_REPO    git URL                (default: https://github.com/sdsrss/onboard.git)
-#   ONBOARD_BRANCH  branch/tag             (default: main)
-#   ONBOARD_TARGET  user | project         (default: user)
-#   ONBOARD_ALLOW_DIRTY  1 to skip dirty-tree check on update
+#   ONBOARD_REPO              git URL          (default: https://github.com/sdsrss/onboard.git)
+#   ONBOARD_BRANCH            branch/tag       (default: main)
+#   ONBOARD_TARGET            user | project   (default: user)
+#   ONBOARD_ALLOW_DIRTY       1 to skip dirty-tree check on update
+#   ONBOARD_NO_OVERWRITE      1 to refuse install if INSTALL_DIR exists  (v2.11+: default overwrite)
+#   ONBOARD_CONFIRM_UNINSTALL set to 'yes' for non-interactive uninstall
+#   ONBOARD_UNINSTALL_MODE    'skill' | 'all'  (default 'all'; documents caller intent, v2.11+)
 #
 # v2.10 layout note:
 #   The repo organizes the skill at skills/onboard/ (Claude Code plugin convention).
@@ -97,10 +100,17 @@ do_install() {
   if [ -d "$INSTALL_DIR" ]; then
     local v
     v=$(current_version)
-    warn "/onboard already installed (v$v) at $INSTALL_DIR"
-    warn "to refresh: $0 update"
-    warn "to reinstall clean: $0 uninstall && $0 install"
-    exit 0
+    if [ "${ONBOARD_NO_OVERWRITE:-0}" = "1" ]; then
+      warn "/onboard already installed (v$v) at $INSTALL_DIR — refusing to overwrite (ONBOARD_NO_OVERWRITE=1)"
+      warn "to refresh: $0 update"
+      warn "to reinstall clean: $0 uninstall && $0 install"
+      exit 0
+    fi
+    info "/onboard v$v already at $INSTALL_DIR — overwriting (set ONBOARD_NO_OVERWRITE=1 to refuse)"
+    case "$INSTALL_DIR" in
+      ""|/|/.|/..) err "refusing rm -rf on suspect path: '$INSTALL_DIR'"; exit 2 ;;
+    esac
+    rm -rf "$INSTALL_DIR"
   fi
 
   rm -rf "$STAGE_DIR"
@@ -172,7 +182,16 @@ do_update() {
 }
 
 do_uninstall() {
-  if [ ! -d "$INSTALL_DIR" ] && [ ! -d "$STAGE_DIR" ]; then
+  local mode="${ONBOARD_UNINSTALL_MODE:-all}"
+  case "$mode" in
+    skill) info "uninstall mode: skill (per-project config preserved by caller)" ;;
+    all)   info "uninstall mode: all (default; per-project cleanup is caller's job — see /onboard --uninstall=all)" ;;
+    *)     err "ONBOARD_UNINSTALL_MODE must be 'skill' or 'all' (got '$mode')"; exit 2 ;;
+  esac
+
+  local mirror_dir="$HOME/.claude/onboard-runtime/hooks"
+
+  if [ ! -d "$INSTALL_DIR" ] && [ ! -d "$STAGE_DIR" ] && [ ! -d "$mirror_dir" ]; then
     warn "/onboard not installed at $INSTALL_DIR — nothing to remove"
     exit 0
   fi
@@ -180,6 +199,7 @@ do_uninstall() {
   info "uninstall plan"
   [ -d "$INSTALL_DIR" ] && echo "  • Will remove: $INSTALL_DIR (skill files)"
   [ -d "$STAGE_DIR" ] && echo "  • Will remove: $STAGE_DIR (source cache)"
+  [ -d "$mirror_dir" ] && echo "  • Will remove: $mirror_dir (plugin-mode hook mirror)"
   echo ""
   warn "What this global uninstall does NOT do:"
   warn "  • Per-project state (.claude/onboarding-state.json or .claude/local-only/) is NOT removed"
@@ -202,13 +222,18 @@ do_uninstall() {
       # §8 SAFETY: refuse to rm on empty or root-ish paths even though set -u +
       # the case-construct above already make these unreachable in practice.
       # Explicit guard makes the dangerous call auditable on its own line.
-      for victim in "$INSTALL_DIR" "$STAGE_DIR"; do
+      for victim in "$INSTALL_DIR" "$STAGE_DIR" "$mirror_dir"; do
         case "$victim" in
           ""|/|/.|/..) err "refusing rm -rf on suspect path: '$victim'"; exit 2 ;;
         esac
       done
       rm -rf "$INSTALL_DIR"
       rm -rf "$STAGE_DIR"
+      if [ -d "$mirror_dir" ]; then
+        rm -rf "$mirror_dir"
+        rmdir "$HOME/.claude/onboard-runtime" 2>/dev/null || true
+        ok "mirror directory removed: $mirror_dir"
+      fi
       ok "/onboard global skill files removed"
       echo ""
       echo "If you forgot per-project cleanup, manually clean each project:"
@@ -295,14 +320,16 @@ Actions:
   doctor      Diagnose installer state + dependency availability
 
 Environment overrides:
-  ONBOARD_REPO        git URL of the skill repository
-  ONBOARD_BRANCH      branch or tag to install/update (default: main)
-  ONBOARD_TARGET      'user' (default, ~/.claude/skills) or 'project' (./.claude/skills)
-  ONBOARD_ALLOW_DIRTY 1 to skip dirty-tree check on update
-  ONBOARD_CONFIRM_UNINSTALL  set to 'yes' for non-interactive uninstall
+  ONBOARD_REPO              git URL of the skill repository
+  ONBOARD_BRANCH            branch or tag to install/update (default: main)
+  ONBOARD_TARGET            'user' (default, ~/.claude/skills) or 'project' (./.claude/skills)
+  ONBOARD_ALLOW_DIRTY       1 to skip dirty-tree check on update
+  ONBOARD_NO_OVERWRITE      1 to refuse install if INSTALL_DIR exists (v2.11+: default overwrite)
+  ONBOARD_CONFIRM_UNINSTALL set to 'yes' for non-interactive uninstall
+  ONBOARD_UNINSTALL_MODE    'skill' or 'all' (default 'all'; documents caller intent, v2.11+)
 
 Per-project cleanup is a separate operation (do BEFORE global uninstall):
-  cd <project> && /onboard --uninstall
+  cd <project> && /onboard --uninstall=all
 HELP
     ;;
   *)

@@ -456,18 +456,23 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.10.2**。
+当前版本：**v2.11.0**。
 
-**v2.10.2 改进**（v2.10.1 后全仓审计找到的 10 条 P-B fixes，2 条 HIGH / 4 MED / 4 LOW，不破坏兼容）：
-- **HIGH**：`guard-bash.sh` deny 模式从子串改为锚定 — 之前 `rm -rf /` 作子串匹配把所有 `rm -rf /<subpath>`（如 `/tmp/foo`、`/var/log/old`）一起误拒；新版仅在 `/` / `~` / `$HOME` 是删除目标本体或链式起始时 deny
-- **HIGH**：新增 `ONBOARD_LOG_DIR` env，`post-edit-check.sh` / `stop-verify.sh` 用它决定 `stop-lint-*.log` / `post-edit-check.log` 归宿。之前硬编码 `.claude/onboarding-logs/` 在 local-only 模式下泄漏到 PROJECT 工作树（meta-rule 13 违规）
-- **MED**：`stop-verify.sh` 改用数组 + `printf %q` 跨 `bash -lc` 边界传文件名 — 之前 space-join + word-split 会把 `src/has space.ts` 拆成 `has` / `space.ts` 两个错误参数
-- **MED**：SKILL.md 内嵌 `示例脚本 3/4` 同步到 canonical hooks/*.sh（含 v2.5 跨平台 timeout、v2.10 strict-mode `FMT_CMD`、v2.10.2 `ONBOARD_LOG_DIR` + 空格安全）；加 canonical pointer 防 Command-mode fallback 退化
-- **MED**：Doctor mode sample output 补 D15（uninstall reversibility）；Phase 7 hook 路径替换表从 2 项扩到 5 项覆盖所有 install 来源
-- **LOW**：settings 模板 `_onboard_version` 8 处从 `2.8` 同步到 `2.10.2`；4 个 test 脚本 git index `100644 → 100755`；`install.sh do_uninstall` 加 path sanity guard
-- 新增 `tests/integration/hook-behavior.sh`（22 assertions）锁住 P-B1/B2/B4 不复发；`tests/run.sh` 5 个 test / 109 assertions / 0 fail
+**v2.11.0 改进**（8 条 P-A items，4 HIGH / 3 MED / 1 LOW；minor bump，Δ-contract additive 向后兼容）：
+- **HIGH P-A1**：CC plugin as target project — Phase 1 探测矩阵 + Phase 1 forbidden zone candidate + Phase 1.7 A8 + Phase 3 模板新增 conditional `## Plugin` 节。onboard 自己作为 target 时可正确识别 `.claude-plugin/plugin.json` + `.mcp.json` + components 自动发现层
+- **HIGH P-A6**：`/onboard --uninstall` 参数化为 `--uninstall[=skill|all]`；裸 `--uninstall` ≡ `=all`（向后兼容 v2.8+）；`=skill` 仅卸 L1 user-global skill + plugin cache + mirror，保留项目侧 L2 + L3 配置 + hook 脚本
+- **HIGH P-A7**：local-only 模式下 `--uninstall=skill` 自动 hook 本地化 — 把 hook 脚本复制到 `.claude/onboard-keeper/hooks/`、jq atomic 重写 settings.local.json 4 个 hook command 路径、`.git/info/exclude` 加 keeper 条目。skill 卸了项目仍能正常运行
+- **HIGH P-A8**：`install.sh install` 默认覆盖（之前已存在时直接退出 0）；`ONBOARD_NO_OVERWRITE=1` 保留旧行为
+- **MED P-A2**：Phase 6 框架选型新增 `package.json scripts.prepare` 写 `.git/hooks/` 检测；之前会误判为 no-signal 并与用户 ad-hoc symlink hook 撞车
+- **MED P-A3**：Phase 1.7 A6 (`behavioral_donts`) 新增 `scripts/sync-version*` / `scripts/version-bump*` 检测信号，同步目标自动列入 Phase 3 `## Don't`
+- **MED P-A9**：`install.sh do_uninstall` 自动清理 `~/.claude/onboard-runtime/hooks/` mirror 目录
+- **LOW P-A10**：`/onboard --uninstall=skill` 非交互调用 install.sh（`ONBOARD_CONFIRM_UNINSTALL=yes ONBOARD_UNINSTALL_MODE=skill`），consumer Claude 自己在 spec 流程做 hard AUTH
+- 新增 3 个元规则（24 三层语义 / 25 分层 hard AUTH / 26 hook 路径连续性），元规则 22 修订标 v2.11
+- 新增 4 个 integration tests（cc-plugin-detection / prepare-script-detection / sync-versions-detection / uninstall-modes）+ 扩展 install-roundtrip 覆盖 P-A8/A9；`tests/run.sh` 9 个 test / 150 assertions / 0 fail（baseline 5 / 109）
 
-**从 v2.10.1 升级**：纯补丁，无 schema / 行为破坏。已 onboarded 项目需要把 `ONBOARD_LOG_DIR` 加入 settings.local.json / settings.json env 块（local-only 模式尤其需要，否则日志仍写到 share 路径）— 跑 `/onboard --update` 自动迁移；或手动从模板 `skills/onboard/settings*.template.json` 复制对应那行。
+**v2.10.2** — 10 条 P-B fixes（2 HIGH / 4 MED / 4 LOW），v2.10.1 后全仓审计找到；详见 CHANGELOG。
+
+**从 v2.10.x 升级到 v2.11**：纯 additive，无 schema 破坏。已 onboarded 项目 `/onboard --uninstall` 仍等价 `=all`，行为不变。要测新 `=skill` 模式 → `/onboard --uninstall=skill`。`install.sh update` 升级到 v2.11.0 后默认覆盖；想保留旧行为加 `ONBOARD_NO_OVERWRITE=1`。
 
 **从 v2.10 升级**：不破坏兼容；plugin 模式用户下次 `/onboard --update` 会自动从 prose-only 镜像策略切换到调用 `mirror-hooks.sh` helper
 

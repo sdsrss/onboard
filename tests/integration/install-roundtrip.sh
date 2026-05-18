@@ -97,17 +97,43 @@ else
   fail "could not detect version from installed SKILL.md"
 fi
 
-hdr "STEP 2: install when already installed"
+hdr "STEP 2: install when already installed (P-A8 default overwrite, v2.11+)"
+# Drop a sentinel file to confirm the directory is actually replaced on overwrite
+echo "v2.10-era-marker" > "$INSTALL_DIR/.pre-overwrite-marker"
 if run_installer install >"$SANDBOX/install-second.log" 2>&1; then
-  pass "second install exits 0 (no clobber)"
+  pass "second install exits 0 (overwrites by default)"
 else
   fail "second install failed (exit $?)"
 fi
-if grep -q "already installed" "$SANDBOX/install-second.log"; then
-  pass "second install warns 'already installed'"
+if grep -q "overwriting" "$SANDBOX/install-second.log"; then
+  pass "second install announces overwrite"
 else
-  fail "second install missing 'already installed' warning"
+  fail "second install missing 'overwriting' announcement"
 fi
+if [ ! -f "$INSTALL_DIR/.pre-overwrite-marker" ]; then
+  pass "INSTALL_DIR was actually overwritten (sentinel removed)"
+else
+  fail "INSTALL_DIR still has pre-overwrite sentinel — overwrite didn't fire"
+fi
+
+hdr "STEP 2b: ONBOARD_NO_OVERWRITE=1 refuses (P-A8 opt-out)"
+echo "still-here" > "$INSTALL_DIR/.no-overwrite-marker"
+if HOME="$FAKE_HOME" ONBOARD_REPO="file://$SOURCE_REPO" ONBOARD_BRANCH=main \
+   ONBOARD_TARGET=user ONBOARD_NO_OVERWRITE=1 \
+   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+   bash "$INSTALL_SH" install >"$SANDBOX/install-no-overwrite.log" 2>&1; then
+  pass "ONBOARD_NO_OVERWRITE=1 install exits 0 (no rm)"
+else
+  fail "ONBOARD_NO_OVERWRITE=1 install failed (exit $?)"
+fi
+if grep -q "refusing to overwrite" "$SANDBOX/install-no-overwrite.log"; then
+  pass "ONBOARD_NO_OVERWRITE=1 warns refusal"
+else
+  fail "ONBOARD_NO_OVERWRITE=1 missing 'refusing to overwrite' warning"
+fi
+[ -f "$INSTALL_DIR/.no-overwrite-marker" ] && pass "INSTALL_DIR preserved under ONBOARD_NO_OVERWRITE=1" \
+  || fail "INSTALL_DIR was clobbered despite ONBOARD_NO_OVERWRITE=1"
+rm -f "$INSTALL_DIR/.no-overwrite-marker"
 
 hdr "STEP 3: doctor on installed state"
 if run_installer doctor >"$SANDBOX/doctor.log" 2>&1; then
@@ -148,7 +174,13 @@ else
   fail "update did not overwrite drift (sha still=$RECOVERED_SHA, expected=$ORIG_SHA)"
 fi
 
-hdr "STEP 5: uninstall (ONBOARD_CONFIRM_UNINSTALL=yes)"
+hdr "STEP 5: uninstall (ONBOARD_CONFIRM_UNINSTALL=yes; P-A9 mirror cleanup, v2.11+)"
+# Pre-populate mirror dir (simulating plugin-mode mirror state) so P-A9 has
+# something to clean. The sandboxed HOME means we're not touching real ~.
+MIRROR_DIR="$FAKE_HOME/.claude/onboard-runtime/hooks"
+mkdir -p "$MIRROR_DIR"
+touch "$MIRROR_DIR/guard-bash.sh" "$MIRROR_DIR/.mirror-manifest.json"
+
 if HOME="$FAKE_HOME" ONBOARD_CONFIRM_UNINSTALL=yes \
    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
    bash "$INSTALL_SH" uninstall </dev/null >"$SANDBOX/uninstall.log" 2>&1; then
@@ -158,6 +190,37 @@ else
 fi
 [ ! -d "$INSTALL_DIR" ] && pass "INSTALL_DIR removed" || fail "INSTALL_DIR still exists"
 [ ! -d "$STAGE_DIR" ] && pass "STAGE_DIR removed" || fail "STAGE_DIR still exists"
+[ ! -d "$MIRROR_DIR" ] && pass "mirror dir removed (P-A9)" || fail "mirror dir still exists at $MIRROR_DIR"
+if grep -q "mirror directory removed" "$SANDBOX/uninstall.log"; then
+  pass "uninstall announced mirror cleanup"
+else
+  fail "uninstall missing mirror-cleanup announcement"
+fi
+
+hdr "STEP 5b: ONBOARD_UNINSTALL_MODE accepts skill / all / rejects bogus (P-A6)"
+# After step 5 nothing is installed; we test the mode-env validation path
+# by invoking uninstall when nothing exists (should still validate env first).
+if HOME="$FAKE_HOME" ONBOARD_CONFIRM_UNINSTALL=yes ONBOARD_UNINSTALL_MODE=skill \
+   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+   bash "$INSTALL_SH" uninstall </dev/null >"$SANDBOX/uninstall-mode-skill.log" 2>&1; then
+  pass "ONBOARD_UNINSTALL_MODE=skill is accepted"
+else
+  fail "ONBOARD_UNINSTALL_MODE=skill rejected (exit $?)"
+fi
+if grep -q "uninstall mode: skill" "$SANDBOX/uninstall-mode-skill.log"; then
+  pass "ONBOARD_UNINSTALL_MODE=skill announced in log"
+else
+  fail "ONBOARD_UNINSTALL_MODE=skill announcement missing"
+fi
+if HOME="$FAKE_HOME" ONBOARD_UNINSTALL_MODE=bogus \
+   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+   bash "$INSTALL_SH" uninstall </dev/null >"$SANDBOX/uninstall-mode-bogus.log" 2>&1; then
+  fail "ONBOARD_UNINSTALL_MODE=bogus should exit non-zero"
+else
+  rc=$?
+  [ "$rc" = "2" ] && pass "ONBOARD_UNINSTALL_MODE=bogus exits 2" \
+    || fail "ONBOARD_UNINSTALL_MODE=bogus exit code != 2 (got $rc)"
+fi
 
 hdr "STEP 6: doctor on uninstalled state"
 if run_installer doctor >"$SANDBOX/doctor-empty.log" 2>&1; then

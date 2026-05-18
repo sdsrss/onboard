@@ -4,7 +4,80 @@
 
 ---
 
-## v2.10.2 — v2.10.1 后全仓审计（current）
+## v2.11.0 — uninstall 三层模型 + CC plugin detection + install.sh 自动化（current）
+
+8 条 P-A items（4 HIGH / 3 MED / 1 LOW）batched into single minor release。Source：2026-05-15 全仓审计 + v2.10.2 ship-后设计讨论。无 schema 破坏，所有改动 Δ-contract additive 或向后兼容。
+
+### Migration (read first)
+
+- 旧 `/onboard --uninstall` 用户：行为不变。裸 `--uninstall` ≡ `--uninstall=all`（向后兼容到 v2.8）
+- 新 `--uninstall=skill` 模式：仅卸 user-global skill，保留所有项目侧配置 + hook 脚本（local-only 模式会自动把 hook 复制到 `.claude/onboard-keeper/`）
+- `install.sh install` 行为变化：default 覆盖（v2.10.x 是 exit-if-exists）。要恢复旧行为加 `ONBOARD_NO_OVERWRITE=1`
+- v2.10.x → v2.11.0：`install.sh update`；已 onboarded 项目无需重跑
+
+### Added
+
+- **P-A1 (HIGH)** **CC plugin as target project**：onboard 自己 dogfood / CC plugin 开发者用 /onboard 时，detection 正确识别
+  - Phase 1 探测矩阵新增根级 row：`.claude-plugin/plugin.json` + (`hooks/`/`skills/`/`commands/`/`agents/`/`.mcp.json`) → CC plugin 栈 + `cc_plugin: true` 标志，与对应语言栈并存
+  - Phase 1 Forbidden zone candidates 新增 item 5：plugin.json / marketplace.json / .mcp.json（手编辑破坏 Claude Code plugin install / marketplace 索引）
+  - Phase 1.7 A8 recipe 扩展：CC plugin manifests 自动列入 `confirmed_forbidden_zones`
+  - Phase 3 模板新增 conditional `## Plugin` 节（仅 `cc_plugin: true` 栈输出）：Manifests / Components / Install topology / Hook path strategy 四类信息
+  - Phase 3 验证规则强制：cc_plugin 栈必须有 `## Plugin` 节
+- **P-A7 (HIGH)** **local-only mode `--uninstall=skill` 自动 hook 本地化**：解决"卸 skill 后 hook 路径 `~/.claude/skills/onboard/hooks/` 不复存在 → settings.local.json 引用 broken path → 后续 PreToolUse/Stop hook silent fail exit 127"问题
+  - Keeper 目录 `.claude/onboard-keeper/hooks/` + `scripts/`，加入 `.git/info/exclude`（LOCAL-SIDE-EFFECT 不入仓）
+  - jq atomic 重写 settings.local.json 4 个 hook command 路径（snapshot per 元规则 21；tmp + mv per Iron Law 14）
+  - 失败原子回滚（任一步骤失败 → 还原 settings + rm keeper + abort）
+  - Share 模式无需本地化（hook 脚本本来就在项目内 `.claude/skills/onboard/hooks/`）
+- **P-A8 (MED)** **`install.sh install` 默认覆盖**：v2.10.x exit-if-exists 改成 silent overwrite + `[onboard]` 提示行；`ONBOARD_NO_OVERWRITE=1` 保留旧行为
+- **P-A9 (MED)** **`install.sh do_uninstall` 自动清 mirror 目录**：v2.10.1 引入的 `~/.claude/onboard-runtime/hooks/` plugin-mode mirror 之前没人清理；现在 uninstall 一并 rm + `rmdir ~/.claude/onboard-runtime` 兜底
+- **P-A10 (LOW)** **`--uninstall=skill` 非交互调用约定**：consumer Claude 自己做 spec 内 hard AUTH，install.sh stdin 提示作 redundant；约定 `ONBOARD_CONFIRM_UNINSTALL=yes ONBOARD_UNINSTALL_MODE=skill bash install.sh uninstall`
+- **3 个新 元规则**：
+  - 元规则 24（uninstall 三层语义）：L1 user-global / L2 project-config / L3 project-files 各自定义清楚清理边界
+  - 元规则 25（分层各自 hard AUTH）：`--uninstall=skill` 一次 AUTH；`=all` 每个 L2 entry 类单独 AUTH（延续 元规则 22 "no batch AUTH for uninstall"）
+  - 元规则 26（skill 卸载必须保 hook 路径连续性）：local-only `=skill` 三步本地化 (cp / jq atomic edit / exclude 写入)，任一失败原子回滚
+- **新增 3 个 integration tests + 1 新 + 2 扩展**：
+  - `tests/integration/cc-plugin-detection.sh`（8 assertions）锁 P-A1 spec
+  - `tests/integration/prepare-script-detection.sh`（2 assertions）锁 P-A2
+  - `tests/integration/sync-versions-detection.sh`（1 assertion）锁 P-A3
+  - `tests/integration/uninstall-modes.sh`（21 assertions）锁 P-A6/A7/A10 spec：argument-hint / 参数解析 / 三层模型 / 模式 1+2 流程 / keeper / 元规则 24/25/26 / 元规则 22 修订 / 非交互约定
+  - `tests/integration/install-roundtrip.sh` 扩展（25 → 34 assertions）覆盖 P-A8/A9：overwrite / no-overwrite / mirror cleanup / ONBOARD_UNINSTALL_MODE env validation
+- `install.sh` 新增 env：`ONBOARD_NO_OVERWRITE` / `ONBOARD_UNINSTALL_MODE`
+
+### Changed
+
+- **P-A6 (HIGH)** **`--uninstall` 参数化为 `[=skill|all]`**：
+  - frontmatter `argument-hint` 更新
+  - 参数解析增 `=skill` 与 `=all` 各自语义说明 + 向后兼容声明
+  - Uninstall Mode 章节整段重写（v2.8 单模式 → v2.11 三层模型 + 双模式 + 默认值约定 + 与 install.sh 分工表更新）
+  - SKILL.md 2336 → 2457 行（+121 / +5.2%）
+- **元规则 22 修订**（v2.8 → v2.8 / v2.11）：区分 `=all` 和 `=skill` 的 hard AUTH 颗粒度
+- **元规则 header**：v2.9 共 23 条 → v2.11 共 26 条
+- **Mode model 文件归宿表**新增 keeper 行：`--uninstall=skill` 后自动生成的 `.claude/onboard-keeper/hooks/` 归宿
+- **P-A2 (MED)** Phase 6 hook 框架选型新增 item 5：`package.json scripts.prepare` 写 `.git/hooks/` 模式识别为已存在 ad-hoc hook 框架，标 `hook-prepare-script` third-party 共存，不再走 hook-local 候选
+- **P-A3 (LOW)** Phase 1.7 A6 (`behavioral_donts`) recipe 扩展：检 `scripts/sync-version*` / `scripts/version-bump*` 写入 ≥2 manifests → 同步目标列入 Phase 3 `## Don't`
+- `settings.local.template.json` `_comment` 扩展：解释 v2.11 keeper 路径重写机制
+- `settings.template.json` `_comment` 扩展：解释 share 模式下 `=skill` 是 L1 only no-op-on-project
+- `install.sh` 顶部 Environment 块 + HELP 块同步新增 env 文档
+
+### Tests
+
+- 5 → 9 integration tests，109 → 150 assertions（+41 / +38%）
+- 所有 9 个 test PASS / 0 FAIL
+- 新 sandbox 路径无（新 tests 都是 spec-grep / 不创建 sandbox）；uninstall-modes.sh 复用 + install-roundtrip.sh 扩展复用现有 `/tmp/onboard-install-sandbox`
+
+### Known limits
+
+- **Plugin-as-target dogfood**：v2.10 known-limit 仍在 — 真实 `/plugin marketplace add sdsrss/onboard` + `/plugin install onboard` 端到端 dogfood 尚未在 v2.11.0 release 时跑通；ship 后立即在本 repo 自身跑 dogfood，发现 gap 进入 v2.12 P-B 队列
+- **`=skill` 模式 hook 本地化的 atomic 回滚**：spec 已写清要求，但 consumer Claude 实际跑 jq + cp + rm 时若中途 IO 失败的回滚路径还未在沙箱测试，依赖元规则 26 + 元规则 22 重入约束在真实运行时收敛
+
+### 升级路径
+
+- v2.10.x → v2.11.0：`bash install.sh update`（自动从 stage cache 拉新版）；已 onboarded 项目用 `/onboard --update` 同步 settings 模板新 _comment 文案
+- 想试 `=skill` 模式：先 onboard 一个项目 → `/onboard --uninstall=skill` → 观察 `.claude/onboard-keeper/` 生成 + settings.local.json 路径重写 → 后续 hook 调用仍走 keeper
+
+---
+
+## v2.10.2 — v2.10.1 后全仓审计
 
 10 条 P-B fixes（2 HIGH / 4 MED / 4 LOW），均源自 2026-05-15 全面审计；不破坏兼容。
 
