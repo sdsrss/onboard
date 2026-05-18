@@ -4,9 +4,21 @@
 
 ---
 
-## v3.0.0-rc.1 — C1 SKILL.md 浅拆 (current)
+## v3.0.0 — C1 SKILL.md 浅拆 (current)
 
-v3 系列首版（release candidate）。SKILL.md 浅拆改造：3 段最重独立块抽到 sub-file，元规则 27 落地。Major bump 因 (a) **LLM-visible metadata protocol shift**（SKILL.md 不再是 entry-only-load，consumer Claude 进入对应 phase 前需要 Read sub-file），(b) sub-file 加载契约本身是新 spec 条款（元规则 27），(c) prior-AUTH override 自 memory `project_v2_11_candidates.md` 2026-05-15 "不做"判断（重启闸门 1/2 仍保留作为深拆评估触发条件，3/4 作废）。**Sub-file scope 仅限**: Phase 7 / Uninstall Mode / 状态文件结构；其余 phase / 总则 / Iron Laws / 元规则 / Marker conventions 保留在 SKILL.md。Migration note: consumer 端无显式动作要求——只要 SKILL.md sentinel summary 中明确 "Read `sub-file.md`" 指令即可触发 lazy-load；rc.1 → 3.0 之间 dogfood 验证此 lazy-load 在真实 /onboard run 上稳定。
+v3 系列首版。SKILL.md 浅拆改造：3 段最重独立块抽到 sub-file，元规则 27 落地。Major bump 因 (a) **LLM-visible metadata protocol shift**（SKILL.md 不再是 entry-only-load，consumer Claude 进入对应 phase 前需要 Read sub-file），(b) sub-file 加载契约本身是新 spec 条款（元规则 27），(c) prior-AUTH override 自 memory `project_v2_11_candidates.md` 2026-05-15 "不做"判断（重启闸门 1/2 仍保留作为深拆评估触发条件，3/4 作废）。**Sub-file scope 仅限**: Phase 7 / Uninstall Mode / 状态文件结构；其余 phase / 总则 / Iron Laws / 元规则 / Marker conventions 保留在 SKILL.md。Migration note: consumer 端无显式动作要求——SKILL.md sentinel summary 中的 "Read `sub-file.md`" 指令 + 元规则 27 cross-ref 即可触发 lazy-load。Promoted from `v3.0.0-rc.1` (commit `9d940eb`) after 3/3 subagent dogfood verified lazy-load 契约。
+
+### Ship evidence (post-rc.1 dogfood, 2026-05-18)
+
+3 个独立 general-purpose subagent (Opus 4.7) 模拟 consumer Claude，分别 entry 三种场景；每个 agent 收到 SKILL.md 路径 + dry-run 约束 + "list every Read call" 要求。结果 3/3 全部触发 sub-file Read：
+
+| Scenario | Sub-file Read? | 元规则 27 cited? | Decisions cite sub-file? |
+|---|---|---|---|
+| Phase 7 entry | ✓ `phases/phase-7.md` (full 469 行) | ✓ "mandated by meta-rule 27 before any actionable decision" | ✓ phase-7.md:18-23 / 88-132 / 25-31 / 92-99 |
+| `--uninstall=skill` | ✓ `phases/uninstall.md` (full 218 行) | ✓ "SKILL.md:1646 + meta-rule 27 require this Read" | ✓ uninstall.md:19-23 / 41-82 / 83-97 / 71-82 |
+| State file write | ✓ `references/state-schema.md` (full 137 行) | ✓ "sentinel summary explicitly forbids inferring schema from it (元规则 27)" | ✓ state-schema.md:17-132 具体行号 |
+
+Caveats（诚实记录）：3 个 subagent 都是 Opus 4.7 同模型族，未覆盖 Haiku/Sonnet 行为；prompt 明确"list every Read call"可能引导 agent 偏严谨；模拟的是 SKILL.md 已 Read 入 context 的情况（非真 Skill tool 自动加载）。Cross-model + 真 plugin install dogfood 仍需用户实测，但当前 evidence 足够 ship。
 
 ### Added
 
@@ -35,10 +47,6 @@ v3 系列首版（release candidate）。SKILL.md 浅拆改造：3 段最重独�
 - Consumer Claude (运行 `/onboard` 的 LLM 实例)：进入 Phase 7 / Uninstall Mode / 状态文件结构 任一段前，遵循 SKILL.md sentinel 中的 `Read .../<sub-file>.md` 指令拉完整 spec。如跳过 Read 仅凭 sentinel summary 做决策 = 元规则 27 违规。
 - 现有 onboarded 项目：无 PROJECT 变化。`/onboard --update` 在 plugin 安装模式下会重新跑 `mirror-hooks.sh` 把 `phases/` 和 `references/` 子目录也镜像到稳定路径（mirror 包含 `skills/onboard/*` 全部）。
 - 维护者：改 hook 需同步更新 `phases/phase-7.md` 的 canonical spec + SKILL.md `## Phase 7` sentinel summary（CLAUDE.md "Don't add a hook" 规则已 record 此契约）。改 Uninstall 行为需同步 `phases/uninstall.md` + SKILL.md sentinel；改 state schema 需同步 `references/state-schema.md` + SKILL.md sentinel + `scripts/validate-state.sh` 校验逻辑。
-
-### Deferred to v3.0.0 (post-rc.1 dogfood)
-
-- Dogfood `/onboard --update` on real fixture (sdsrss/gsd-lite or 干净 fixture)：验证 consumer LLM 在真实 Skill 加载时是否按 prose 触发 sub-file Read，无 "consumer 忘 Read sub-file" 故障 → release `v3.0.0`。
 
 ### Deferred to later
 
