@@ -2,7 +2,7 @@
 
 旧项目接入 Claude Code 的标准化引导流程，**Skill 形式发布版**。
 
-- 版本：v2.12.0（v2 系列；v2.4 是首个 net-line-decrease 里程碑，之后 v2.5-v2.12 net-grow）
+- 版本：v3.0.0-rc.1（v3 系列首版；C1 SKILL.md 浅拆 — Phase 7 / Uninstall Mode / 状态文件结构 三段抽到 sub-file，元规则 27 落地）
 - 入口命令：`/onboard`
 - 形式：Skill（含 SKILL.md + 4 个预制 hook 脚本作为 supporting files）
 
@@ -474,7 +474,7 @@ onboard 任何 PROJECT 文件写入都加 marker：
 
 ## 升级与版本
 
-当前版本：**v2.12.0**。
+当前版本：**v3.0.0-rc.1**。
 
 **v2.11.0 改进**（8 条 P-A items，4 HIGH / 3 MED / 1 LOW；minor bump，Δ-contract additive 向后兼容）：
 - **HIGH P-A1**：CC plugin as target project — Phase 1 探测矩阵 + Phase 1 forbidden zone candidate + Phase 1.7 A8 + Phase 3 模板新增 conditional `## Plugin` 节。onboard 自己作为 target 时可正确识别 `.claude-plugin/plugin.json` + `.mcp.json` + components 自动发现层

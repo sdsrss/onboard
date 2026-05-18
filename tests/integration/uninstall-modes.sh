@@ -13,6 +13,9 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SKILL="$SOURCE_REPO/skills/onboard/SKILL.md"
+# v3.0: Uninstall Mode canonical spec moved to sub-file (元规则 27).
+# SKILL.md retains sentinel header + summary; sub-file holds full prose.
+UNINSTALL="$SOURCE_REPO/skills/onboard/phases/uninstall.md"
 PASS=0
 FAIL=0
 
@@ -23,6 +26,10 @@ hdr()  { echo ""; echo "$(c '1;36' "═══ $* ═══")"; }
 
 if [ ! -f "$SKILL" ]; then
   echo "ERROR: SKILL.md not found at $SKILL" >&2
+  exit 2
+fi
+if [ ! -f "$UNINSTALL" ]; then
+  echo "ERROR: uninstall.md sub-file not found at $UNINSTALL (v3.0+)" >&2
   exit 2
 fi
 
@@ -51,53 +58,53 @@ if grep -qE '^## Uninstall Mode.*v2\.11 三层模型' "$SKILL"; then
 else
   fail "Uninstall Mode 章节 header 未标 v2.11 三层模型 重写"
 fi
-if grep -qE '^### 三层状态模型' "$SKILL"; then
-  pass "三层状态模型 sub-section 存在"
+if grep -qE '^### 三层状态模型' "$UNINSTALL"; then
+  pass "三层状态模型 sub-section 存在 (sub-file)"
 else
-  fail "三层状态模型 sub-section 缺失"
+  fail "三层状态模型 sub-section 缺失 (sub-file)"
 fi
 for layer in 'L1 user-global' 'L2 project-config' 'L3 project-files'; do
-  if grep -qE "\\*\\*$layer\\*\\*" "$SKILL"; then
-    pass "三层模型含 '$layer'"
+  if grep -qE "\\*\\*$layer\\*\\*" "$UNINSTALL"; then
+    pass "三层模型含 '$layer' (sub-file)"
   else
-    fail "三层模型缺 '$layer'"
+    fail "三层模型缺 '$layer' (sub-file)"
   fi
 done
 
 hdr 'P-A6 · =skill and =all flows both documented'
-if grep -qE '模式 1.*--uninstall=skill.* 流程' "$SKILL"; then
-  pass "模式 1 (=skill) 流程章节存在"
+if grep -qE '模式 1.*--uninstall=skill.* 流程' "$UNINSTALL"; then
+  pass "模式 1 (=skill) 流程章节存在 (sub-file)"
 else
-  fail "模式 1 (=skill) 流程章节缺失"
+  fail "模式 1 (=skill) 流程章节缺失 (sub-file)"
 fi
-if grep -qE '模式 2.*--uninstall=all.* 流程' "$SKILL"; then
-  pass "模式 2 (=all) 流程章节存在"
+if grep -qE '模式 2.*--uninstall=all.* 流程' "$UNINSTALL"; then
+  pass "模式 2 (=all) 流程章节存在 (sub-file)"
 else
-  fail "模式 2 (=all) 流程章节缺失"
+  fail "模式 2 (=all) 流程章节缺失 (sub-file)"
 fi
 
 hdr "P-A6 · 默认值约定 (v2.11 backward-compat)"
-if grep -qE '^### 默认值约定.*v2\.11' "$SKILL"; then
-  pass "默认值约定 sub-section 存在 + 标 v2.11"
+if grep -qE '^### 默认值约定.*v2\.11' "$UNINSTALL"; then
+  pass "默认值约定 sub-section 存在 + 标 v2.11 (sub-file)"
 else
-  fail "默认值约定 sub-section 缺失或未标 v2.11"
+  fail "默认值约定 sub-section 缺失或未标 v2.11 (sub-file)"
 fi
 
 hdr "P-A7 · local-only hook localization → .claude/onboard-keeper/"
-if grep -qE 'onboard-keeper/hooks/' "$SKILL"; then
-  pass "Uninstall Mode 引用 .claude/onboard-keeper/hooks/ 路径"
+if grep -qE 'onboard-keeper/hooks/' "$SKILL" "$UNINSTALL"; then
+  pass "Uninstall spec 引用 .claude/onboard-keeper/hooks/ 路径"
 else
-  fail "Uninstall Mode 缺 .claude/onboard-keeper/ keeper 路径"
+  fail "Uninstall spec 缺 .claude/onboard-keeper/ keeper 路径"
 fi
-if grep -qE 'jq atomic.*tmp.*mv' "$SKILL" || grep -qE 'jq.*tmp \+ mv' "$SKILL"; then
-  pass "Uninstall Mode 含 atomic jq edit (tmp + mv) 说明"
+if grep -qE 'jq atomic.*tmp.*mv' "$UNINSTALL" || grep -qE 'jq.*tmp \+ mv' "$UNINSTALL"; then
+  pass "Uninstall spec 含 atomic jq edit (tmp + mv) 说明 (sub-file)"
 else
-  fail "Uninstall Mode 缺 atomic jq edit (tmp + mv) 说明"
+  fail "Uninstall spec 缺 atomic jq edit (tmp + mv) 说明 (sub-file)"
 fi
-if grep -qE 'snapshot.*元规则 21|元规则 21.*snapshot' "$SKILL"; then
-  pass "Uninstall Mode 引用 元规则 21（snapshot before edit）"
+if grep -qE 'snapshot.*元规则 21|元规则 21.*snapshot' "$UNINSTALL"; then
+  pass "Uninstall spec 引用 元规则 21（snapshot before edit）(sub-file)"
 else
-  fail "Uninstall Mode 缺 元规则 21 snapshot 引用"
+  fail "Uninstall spec 缺 元规则 21 snapshot 引用 (sub-file)"
 fi
 
 hdr "P-A7 · Mode model table row (keeper)"
@@ -131,18 +138,18 @@ else
   fail "元规则 22 未标 v2.11 修订（应说明 =all vs =skill AUTH 颗粒度差异）"
 fi
 
-hdr "P-A6 · 元规则 header bumped to v2.11 共 26 条"
-if grep -qE '^## 元规则.*v2\.11 共 26 条' "$SKILL"; then
-  pass "元规则 header 标 'v2.11 共 26 条'"
+hdr "P-A6 · 元规则 header bumped to v3.0 共 27 条 (was v2.11 共 26 条)"
+if grep -qE '^## 元规则.*v3\.0 共 27 条' "$SKILL"; then
+  pass "元规则 header 标 'v3.0 共 27 条'"
 else
-  fail "元规则 header 仍是旧版（未 bump 到 v2.11 共 26 条）"
+  fail "元规则 header 仍是旧版（未 bump 到 v3.0 共 27 条）"
 fi
 
 hdr "P-A10 · non-interactive convention documented"
-if grep -qE 'ONBOARD_CONFIRM_UNINSTALL=yes.*ONBOARD_UNINSTALL_MODE=skill' "$SKILL"; then
-  pass "Uninstall Mode 含非交互调用 install.sh 的命令样例"
+if grep -qE 'ONBOARD_CONFIRM_UNINSTALL=yes.*ONBOARD_UNINSTALL_MODE=skill' "$UNINSTALL"; then
+  pass "Uninstall spec 含非交互调用 install.sh 的命令样例 (sub-file)"
 else
-  fail "Uninstall Mode 缺 ONBOARD_CONFIRM_UNINSTALL + ONBOARD_UNINSTALL_MODE 调用样例"
+  fail "Uninstall spec 缺 ONBOARD_CONFIRM_UNINSTALL + ONBOARD_UNINSTALL_MODE 调用样例 (sub-file)"
 fi
 
 hdr "FINAL REPORT"

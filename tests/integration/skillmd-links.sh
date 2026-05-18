@@ -24,6 +24,14 @@ SOURCE_REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SKILL="$SOURCE_REPO/skills/onboard/SKILL.md"
 HOOKS_DIR="$SOURCE_REPO/skills/onboard/hooks"
 SCRIPTS_DIR="$SOURCE_REPO/skills/onboard/scripts"
+PHASES_DIR="$SOURCE_REPO/skills/onboard/phases"
+REFS_DIR="$SOURCE_REPO/skills/onboard/references"
+# v3.0 sub-file split (元规则 27): Phase 7 / Uninstall Mode / 状态文件结构
+SUB_FILES=(
+  "phases/phase-7.md"
+  "phases/uninstall.md"
+  "references/state-schema.md"
+)
 PASS=0
 FAIL=0
 
@@ -119,19 +127,24 @@ else
 fi
 
 hdr "STEP 6: scripts/<name>.sh references resolve"
+# Two valid locations: skill-bundled (skills/onboard/scripts/, e.g. mirror-hooks.sh)
+# and repo-root utilities (scripts/, e.g. validate-state.sh / verify-counts.sh /
+# release-preflight.sh — maintainer tools, not shipped with installed skill).
 SCRIPTS_MISSING=()
 SCRIPTS_CHECKED=0
 while IFS= read -r ref; do
   SCRIPTS_CHECKED=$((SCRIPTS_CHECKED+1))
   name="${ref#scripts/}"
-  if [ ! -f "$SCRIPTS_DIR/$name" ]; then
+  if [ -f "$SCRIPTS_DIR/$name" ] || [ -f "$SOURCE_REPO/scripts/$name" ]; then
+    :
+  else
     SCRIPTS_MISSING+=("$ref")
   fi
 done < <(grep -oE 'scripts/[a-z-]+\.sh' "$SKILL" | sort -u)
 if [ "$SCRIPTS_CHECKED" -eq 0 ]; then
   fail "no scripts/*.sh references found in SKILL.md"
 elif [ "${#SCRIPTS_MISSING[@]}" -eq 0 ]; then
-  pass "$SCRIPTS_CHECKED distinct scripts/*.sh references all resolve to real files"
+  pass "$SCRIPTS_CHECKED distinct scripts/*.sh references all resolve (skill-bundled or repo-root)"
 else
   fail "missing script files: ${SCRIPTS_MISSING[*]}"
 fi
@@ -149,6 +162,41 @@ if [ "${#UNREFERENCED[@]}" -eq 0 ]; then
 else
   fail "required hooks not referenced: ${UNREFERENCED[*]}"
 fi
+
+hdr "STEP 8: v3.0 sub-file split contract (元规则 27)"
+# Sub-file existence
+for sub in "${SUB_FILES[@]}"; do
+  if [ -f "$SOURCE_REPO/skills/onboard/$sub" ]; then
+    pass "sub-file exists: skills/onboard/$sub"
+  else
+    fail "sub-file missing: skills/onboard/$sub"
+  fi
+done
+# Each sub-file has frontmatter prose ("本文件是 SKILL.md")
+for sub in "${SUB_FILES[@]}"; do
+  if head -10 "$SOURCE_REPO/skills/onboard/$sub" 2>/dev/null | grep -qE '^> 本文件是 SKILL\.md'; then
+    pass "sub-file has frontmatter prose: $sub"
+  else
+    fail "sub-file missing frontmatter '本文件是 SKILL.md ...' prose: $sub"
+  fi
+done
+# SKILL.md sentinel block links each sub-file
+for sub in "${SUB_FILES[@]}"; do
+  if grep -qE "$(echo "$sub" | sed 's/\./\\./g')" "$SKILL"; then
+    pass "SKILL.md sentinel links sub-file: $sub"
+  else
+    fail "SKILL.md missing sentinel link to: $sub"
+  fi
+done
+# SKILL.md sentinel headers preserved at known anchor names
+for h in '^## Phase 7 · Claude Code Hooks' '^## Uninstall Mode' '^## 状态文件结构'; do
+  hits=$(grep -cE "$h" "$SKILL")
+  if [ "$hits" -eq 1 ]; then
+    pass "SKILL.md sentinel header (exactly 1 hit): $h"
+  else
+    fail "SKILL.md sentinel header count != 1 (got $hits): $h"
+  fi
+done
 
 hdr "FINAL REPORT"
 echo "  pass: $PASS"

@@ -4,7 +4,51 @@
 
 ---
 
-## v2.12.0 — audit follow-up Batch B + C2 (current)
+## v3.0.0-rc.1 — C1 SKILL.md 浅拆 (current)
+
+v3 系列首版（release candidate）。SKILL.md 浅拆改造：3 段最重独立块抽到 sub-file，元规则 27 落地。Major bump 因 (a) **LLM-visible metadata protocol shift**（SKILL.md 不再是 entry-only-load，consumer Claude 进入对应 phase 前需要 Read sub-file），(b) sub-file 加载契约本身是新 spec 条款（元规则 27），(c) prior-AUTH override 自 memory `project_v2_11_candidates.md` 2026-05-15 "不做"判断（重启闸门 1/2 仍保留作为深拆评估触发条件，3/4 作废）。**Sub-file scope 仅限**: Phase 7 / Uninstall Mode / 状态文件结构；其余 phase / 总则 / Iron Laws / 元规则 / Marker conventions 保留在 SKILL.md。Migration note: consumer 端无显式动作要求——只要 SKILL.md sentinel summary 中明确 "Read `sub-file.md`" 指令即可触发 lazy-load；rc.1 → 3.0 之间 dogfood 验证此 lazy-load 在真实 /onboard run 上稳定。
+
+### Added
+
+- **`skills/onboard/phases/phase-7.md`** (459 行 + 7 行 frontmatter prose = 468 行)：Phase 7 完整 spec 从 SKILL.md:1327-1785 迁出。canonical：settings.json 形式 × 模式 × 安装来源 三维决策表 / 4 hook 完整 settings 模板 / canonical 嵌入示例脚本 (guard-bash / guard-edit / post-edit-check / stop-verify) / mirror-hooks.sh 集成点 / Iron Law 12/15/16/19/23 在 hook 层面的具体绑定。
+- **`skills/onboard/phases/uninstall.md`** (209 行 + 8 行 frontmatter = 217 行)：Uninstall Mode 完整 spec 从 SKILL.md:2090-2298 迁出。canonical：三层状态模型 (L1/L2/L3) / `=skill` vs `=all` 双模式流程 / keeper-rewrite atomic protocol (jq tmp + mv) / 默认值约定 / 非交互调用样例 (`ONBOARD_CONFIRM_UNINSTALL=yes ONBOARD_UNINSTALL_MODE=skill ...`) / Iron Law 20/21/22 + 元规则 26 在 uninstall 层面的具体绑定。
+- **`skills/onboard/references/state-schema.md`** (128 行 + 8 行 frontmatter = 136 行)：状态文件结构 schema 从 SKILL.md:2332-2459 迁出。canonical：完整字段定义 / 模式分支路径 / phase status 11 枚举 / params XOR 约束 / `scripts/validate-state.sh` 引用点。
+- **元规则 27 (v3.0 sub-file 拆分契约)**：SKILL.md 元规则段加第 27 条。强制 sentinel summary 与 sub-file 顶部「保留要点」语义同步；改 3 段任意一处需 audit 另一处；consumer Claude 必 Read sub-file 才能拿 actionable 细节（不准凭 sentinel summary 推断）。`## 元规则` header bump `v2.11 共 26 条` → `v3.0 共 27 条`。
+- **`skillmd-links.sh` STEP 8**: +12 个断言（3 个 sub-file 存在 / 3 个 frontmatter prose / 3 个 SKILL.md sentinel link / 3 个 sentinel header 命中次数）。`skillmd-links.sh` 9 → 21 assertions。总测试 202 → **214 assertions** / 10 tests / 0 fail。
+
+### Changed
+
+- **`SKILL.md` 2490 → 1731 行（−30.5%）**：3 段抽出后原位置改为 sentinel header + 4-8 bullet summary + `Read sub-file.md` 指令。Sentinel 段长度共 ~45 行（替代抽出的 796 行）。`## Phase 7` / `## Uninstall Mode` / `## 状态文件结构` 三个 header 名字不变 → 外部 prose 引用（CLAUDE.md 5 处、README 6 处、scripts 4 处、tests 多处）零修改。Iron Law 12/16/20/21/22/23 + 元规则 24/25/26 跨段 anchor（按名字非行号）零修改。
+- **`CLAUDE.md` "Don't add a hook" 规则更新**：line 118 改 hook 时需更新的列表从 `(a) SKILL.md Phase 7` 改为 `(a) skills/onboard/phases/phase-7.md (canonical Phase 7 spec, v3.0+) AND SKILL.md ## Phase 7 sentinel summary bullets (元规则 27 同步契约)`。
+- **`CLAUDE.md` inventory line** (line 9)：SKILL.md 描述加 v3.0 sub-file 拆分说明。
+- **`uninstall-modes.sh`** (21 assertions, 数不变)：新加 `UNINSTALL="$SOURCE_REPO/skills/onboard/phases/uninstall.md"` 变量；9 个 assertion 从 grep `$SKILL` 改为 grep `$UNINSTALL`（三层模型 / 模式 1/2 流程 / 默认值约定 / jq atomic / 元规则 21 snapshot / ONBOARD_CONFIRM）；1 个改为 grep `$SKILL $UNINSTALL`（onboard-keeper/hooks/，两文件均可命中）；元规则 header 断言 `v2.11 共 26 条` 改 `v3.0 共 27 条`。
+
+### Not changed (intentional)
+
+- **4 个 hook 脚本本体** (`skills/onboard/hooks/*.sh`)：零行修改。Phase 7 canonical 嵌入示例脚本与 `hooks/*.sh` 的同步契约规则照旧（per CLAUDE.md「示例脚本」failure mode）——只是 canonical 位置从 SKILL.md 段内移到 phase-7.md 段内。
+- **`install.sh`**：staging cache `cp -a "$STAGE_DIR/skills/onboard/." "$INSTALL_DIR/"` 已经递归处理子目录（`phases/` / `references/`），无需改动。
+- **`scripts/validate-state.sh`**：v2.12.0 标注 `per SKILL.md state schema v2.9` 注释指向的 schema 内容仍精确（迁到 sub-file 但 schema 字段定义不变）；不更新注释（rationale: 注释引用 schema 版本而非文件路径）。
+- **`scripts/release-preflight.sh` PIN_RULES**：7 条不变。sub-file 不嵌入 version pin（跟随 SKILL.md 一起 ship）。
+
+### Migration
+
+- Consumer Claude (运行 `/onboard` 的 LLM 实例)：进入 Phase 7 / Uninstall Mode / 状态文件结构 任一段前，遵循 SKILL.md sentinel 中的 `Read .../<sub-file>.md` 指令拉完整 spec。如跳过 Read 仅凭 sentinel summary 做决策 = 元规则 27 违规。
+- 现有 onboarded 项目：无 PROJECT 变化。`/onboard --update` 在 plugin 安装模式下会重新跑 `mirror-hooks.sh` 把 `phases/` 和 `references/` 子目录也镜像到稳定路径（mirror 包含 `skills/onboard/*` 全部）。
+- 维护者：改 hook 需同步更新 `phases/phase-7.md` 的 canonical spec + SKILL.md `## Phase 7` sentinel summary（CLAUDE.md "Don't add a hook" 规则已 record 此契约）。改 Uninstall 行为需同步 `phases/uninstall.md` + SKILL.md sentinel；改 state schema 需同步 `references/state-schema.md` + SKILL.md sentinel + `scripts/validate-state.sh` 校验逻辑。
+
+### Deferred to v3.0.0 (post-rc.1 dogfood)
+
+- Dogfood `/onboard --update` on real fixture (sdsrss/gsd-lite or 干净 fixture)：验证 consumer LLM 在真实 Skill 加载时是否按 prose 触发 sub-file Read，无 "consumer 忘 Read sub-file" 故障 → release `v3.0.0`。
+
+### Deferred to later
+
+- C1 中拆 / 深拆（每 Phase 一个 sub-file / 总则 / Mode model / Iron Laws / 元规则 抽出）：闸门 1（consumer /onboard Phase 4+ "忘 Iron Law" 类错误）+ 闸门 2（单次 /onboard 跑 >60k tokens）任一触发再评估。memory `project_v2_11_candidates.md` 仍保留这两个闸门 active。
+- H4 (state migration fixtures v1-v8) / H5 (third-party hook coexistence fixture) / C3 (LLM-based integration test via `claude --print`)
+- Phase 4.5 build validation / M2 (LSP / editor config awareness in Phase 2.5)
+
+---
+
+## v2.12.0 — audit follow-up Batch B + C2
 
 Post-architecture-audit Batch B + C2：3 个 additive 特性 + 1 个 critical 缺口补齐。**Minor bump** 因 (a) 引入新 env (`ONBOARD_FORBIDDEN_COMMANDS`) 和新 stacks.json 字段（additive Δ-contract），(b) 新增 user-callable script (`scripts/validate-state.sh`)，(c) 新增 1 个集成测试套件。**纯 additive**，无 schema 破坏，无现有行为变化。
 
