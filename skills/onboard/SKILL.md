@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v3.1.0)
+# /onboard — Legacy Project Onboarding Protocol (v3.2.0)
 
 参数：`$ARGUMENTS`
 
@@ -240,54 +240,20 @@ detect_package_managers() {
 
 ---
 
-## Claude Code plugin recommendation matrix（v2.7 新增，硬编码）
+## Claude Code plugin recommendation matrix（v2.7 新增；v3.2 spec 抽到 sub-file）
 
-Phase 2.5 按项目信号匹配此矩阵；矩阵未覆盖的项目特征 → 走"open recommendation" 通道（consumer Claude 自由推荐，用户确认后写入 state，未来可促请 spec 维护者收编进矩阵）。
+本段保留要点（不替代 sub-file）：
 
-### 硬编码矩阵
+- 矩阵分两类：**always-on**（`claudemd` / `claude-mem-lite`）= 不论项目特征均推荐；**条件触发** = 按 stack / framework / 基础设施信号匹配
+- **size-triggered**：medium/large 项目或多栈 → `code-graph-mcp` / `serena`（跨语言引用与影响面分析）
+- **stack-framework triggered**：react/vue/svelte/next → `frontend-design` + `design-review`；anthropic SDK → `claude-api`；fastmcp/@modelcontextprotocol/sdk → `mcp-builder`
+- **infra-triggered**：Dockerfile / k8s / terraform → `cso`（安全审查）；CI deploy job → `setup-deploy`
+- **Open recommendation 协议**：矩阵未覆盖的项目特征走"open"通道（consumer Claude 自由推荐 + 用户确认 + 写入 `phase_2_5.plugin_recommendations.from_open[]`）；同 plugin 在 ≥ 3 项目出现 → 建议升级到硬编码矩阵
+- **DSL**：`approve plugin <id>` 单批 / `approve plugin-all-matrix` 接受全部矩阵 / `[open]` 项分开确认
+- **绝不自动安装** — Iron Law 7 + 元规则 19：所有 plugin 推荐只输出 `/plugin install <id>` 命令字符串，等用户跑
 
-| Plugin | Trigger 条件 | 推荐理由 |
-|---|---|---|
-| `claudemd` | always | 统一 CLAUDE.md 治理、规范节归属、banned vocab |
-| `claude-mem-lite` | always | 跨会话记忆 + 经验沉淀 |
-| `code-graph-mcp` | `stack_overall_size ∈ {medium, large}` OR `len(stacks) >= 2` | 大型 / 多语言代码库的引用关系、影响面分析 |
-| `serena` | `len(stacks) >= 2` OR 单栈文件数 > 3000 | 跨语言语义搜索 |
-| `frontend-design` | 任一 stack frameworks 含 `react / vue / svelte / nuxt / next` | UI 质量、避免 AI 套路化 |
-| `design-review` | 上一条命中 + 检出 `dev` script + 可访问的 web 入口 | 实时视觉 QA |
-| `qa` / `qa-only` | 检出 dev server config（vite/next/webpack devServer/uvicorn reload 等） | 系统化 QA 流程 |
-| `setup-deploy` | `.github/workflows/*.yml` 含 deploy job OR `.gitlab-ci.yml` 含 deploy stage | 标准化部署流 |
-| `cso` | 存在 `Dockerfile` / `*.k8s.yml` / `kustomization.yaml` / `terraform/` | 基础设施类项目安全审查 |
-| `document-release` | 存在 `CHANGELOG.md` AND `git tag` 数量 ≥ 3 | 发版后文档同步 |
-| `mcp-builder` | 检出 `fastmcp` / `@modelcontextprotocol/sdk` 引用 | MCP server 开发支持 |
-| `seo-technical` / `seo-content` | 检出 docs 站点配置（`mkdocs.yml` / `docusaurus.config.js` / `astro.config.*` blog） | SEO + 内容质量 |
-| `claude-api` | 检出 `anthropic` SDK 引用（`anthropic` Python / `@anthropic-ai/sdk` TS） | Claude API 应用专项 |
-| `webapp-testing` | 上述 qa 触发但项目无 e2e 测试 | Playwright 工具箱接入 |
-| `make-pdf` | 检出 `docs/` 含 markdown 报告 | 文档转 PDF |
-
-### Open recommendation 协议
-
-当 consumer Claude 觉得某 plugin 适合此项目但**不在矩阵中**：
-
-1. 写入 state file `phase_2_5.plugin_recommendations.from_open[]`，结构：
-   ```json
-   { "name": "<plugin-id>", "reason": "<one line>", "trigger_signal": "<观察到的项目特征>" }
-   ```
-2. 在 Phase 2.5 卡片"Open recommendations"小节列出，标 `[open]`
-3. 用户 `approve plugin <id>` 同样的 DSL 处理
-4. 矩阵升级建议：每次 `--update` 时，若同一 open recommendation 在 ≥ 3 个项目中出现 → Phase 0 输出"建议给 spec 维护者反馈：把 X 加入硬编码矩阵"
-
-### 用户确认协议
-
-Plugin 推荐**绝不自动安装**，按 v2.7 设计逐项让用户选：
-
-```
-Suggested Claude Code plugins (review each):
-  [Y/n] claudemd              统一 CLAUDE.md 治理               (always-on)
-  [Y/n] claude-mem-lite       跨会话记忆                        (always-on)
-  [Y/n] code-graph-mcp        2 栈 + medium size                (matrix:size)
-  [Y/n] frontend-design       react detected                    (matrix:stack)
-  [open] flask-explorer       推断自 apps/api flask 路由        (open-rec)
-```
+> 完整矩阵（15 项 plugin + 触发条件 + 推荐理由）、open recommendation 协议详细字段、用户确认协议样例 → Read `references/recommendations.md`。
+> 元规则 27：本段是 sentinel summary，仅做基本决策依据；任何 actionable plugin 选型必须 Read sub-file 拿到完整 trigger 条件。
 
 ---
 
@@ -911,7 +877,7 @@ abort
 - 安装协议：`approve runtime tool-versions` / `print runtime-install` / `skip`
 
 **类 4 · Claude Code plugins**（按硬编码矩阵 + open recommendation）：
-- 见上文「Claude Code plugin recommendation matrix」
+- 见 `references/recommendations.md`（v3.2+ sub-file，完整 15 项硬编码矩阵 + open recommendation 协议）；SKILL.md `## Claude Code plugin recommendation matrix` 保留 sentinel summary
 - 安装协议：逐 plugin Y/N；`approve plugin <id>` 单批；`approve plugin-all-matrix` 接受所有矩阵推荐
 - **绝不**自动 `/plugin install`——只生成命令字符串
 
@@ -1733,5 +1699,5 @@ Doctor 模式不修改 `.claude/onboarding-state.json`。如需基于诊断结�
 24. **（v2.11）uninstall 三层语义**：onboard 状态分布在三层 — L1 user-global (`~/.claude/skills/onboard/`、plugin cache、`~/.claude/onboard-runtime/hooks/`)、L2 project-config (`.claude/settings.local.json` 中的 hook 条目 + env keys + `CLAUDE.local.md` managed block + `.git/info/exclude` marker 块)、L3 project-files (hook 脚本本体；share 模式在项目内，local-only 模式默认指向 L1，`=skill` 后本地化到 `.claude/onboard-keeper/hooks/`；`.claude/local-only/onboarding-state.json`、stacks.json、snapshots 目录)。`=skill` 卸 L1；`=all` 卸三层全部。语义违反此模型的卸载实现 = §8 违规。
 25. **（v2.11）uninstall 分层各自 hard AUTH**：`--uninstall=skill` 单次 hard AUTH（"卸 L1 user-global + 保留 L2 + L3"）；`--uninstall=all` 在 skill 单次 AUTH 之外，每个 L2 manifest entry 类（CLAUDE / settings / exclude marker / state-dir / snapshots）单独 hard AUTH。每次 AUTH 都要 diff preview。卸载不接受 batch AUTH 是 元规则 22 的延续。
 26. **（v2.11）skill 卸载必须保 hook 路径连续性**：local-only 模式下 `--uninstall=skill` 必须先 (a) 把 `~/.claude/skills/onboard/{hooks/*,scripts/mirror-hooks.sh}` 复制到 `.claude/onboard-keeper/{hooks/,scripts/}`、(b) jq atomic 重写 `.claude/settings.local.json` 中 4 个 hook `command` 字段（`${HOME}/.claude/skills/onboard/` → `${CLAUDE_PROJECT_DIR}/.claude/onboard-keeper/`）、(c) 将 keeper 目录加入 `.git/info/exclude` + 更新 onboard-manifest.json，才能 rm L1 skill 包。任一步失败 → 整个 `--uninstall=skill` 流程原子回滚（不允许残留 broken hook 路径）。share 模式下因 hook 已在 `.claude/skills/onboard/hooks/`（项目内），无须本地化。
-27. **（v3.0）sub-file 拆分契约**：Phase 7 / Uninstall Mode / 状态文件结构 三段完整 spec 在 `skills/onboard/phases/phase-7.md`、`phases/uninstall.md`、`references/state-schema.md`。SKILL.md 原位置保留 sentinel header（`## Phase 7` / `## Uninstall Mode` / `## 状态文件结构`）+ 4-8 bullet summary + `Read sub-file.md` 指令；canonical 决策（settings 模板、四象限决策表、嵌入示例脚本、三层 uninstall 实现细节、完整 schema 字段定义）走 sub-file。Consumer Claude：进入对应 phase 前**必须 Read sub-file**；任何 actionable 细节不准凭 SKILL.md sentinel summary 推断。改这 3 段任意一处（包括给 Phase 7 加 hook、改 uninstall 行为、调 state schema）必须同步 audit：(a) sentinel summary bullet 与 sub-file 顶部「保留要点」对应内容必须语义同步；(b) SKILL.md sentinel link 路径有效；(c) sub-file 顶部 frontmatter prose 段保留。半同步 = 元规则 27 违规 = drift。CLAUDE.md「Don't add a hook」规则记录此契约的 audit 列表。
+27. **（v3.0；v3.2 扩展）sub-file 拆分契约**：Phase 7 / Uninstall Mode / 状态文件结构 / Plugin recommendation matrix 四段完整 spec 在 `skills/onboard/phases/phase-7.md`、`phases/uninstall.md`、`references/state-schema.md`、`references/recommendations.md`。SKILL.md 原位置保留 sentinel header（`## Phase 7` / `## Uninstall Mode` / `## 状态文件结构` / `## Claude Code plugin recommendation matrix`）+ 4-8 bullet summary + `Read sub-file.md` 指令；canonical 决策（settings 模板、四象限决策表、嵌入示例脚本、三层 uninstall 实现细节、完整 schema 字段定义、15 项 plugin 触发条件 + 推荐理由 + open recommendation 协议）走 sub-file。Consumer Claude：进入对应 phase 前**必须 Read sub-file**；任何 actionable 细节不准凭 SKILL.md sentinel summary 推断。改这 4 段任意一处（包括给 Phase 7 加 hook、改 uninstall 行为、调 state schema、扩 plugin 矩阵）必须同步 audit：(a) sentinel summary bullet 与 sub-file 顶部「保留要点」对应内容必须语义同步；(b) SKILL.md sentinel link 路径有效；(c) sub-file 顶部 frontmatter prose 段保留。半同步 = 元规则 27 违规 = drift。CLAUDE.md「Don't add a hook」规则记录此契约的 audit 列表。
 ```

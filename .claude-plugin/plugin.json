@@ -1,7 +1,7 @@
 {
   "name": "onboard",
   "description": "Legacy project onboarding for Claude Code — analyzes the codebase, generates a token-budgeted CLAUDE.md, wires 4 guard hooks, manages forbidden zones, and aligns CI with local commands. Default `--local-only` writes zero PROJECT files (no team pollution). Use when setting up Claude Code on a legacy project, configuring guard hooks, generating CLAUDE.md, running --doctor health checks, or uninstalling onboard.",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "author": {
     "name": "sds"
   },

@@ -11,7 +11,7 @@
 
 `/onboard` 是 [Claude Code](https://claude.com/claude-code) 的 Skill，把 *legacy* 项目走一遍 10 阶段标准化引导 —— 探测语言栈、生成 token 紧凑的 `CLAUDE.md`、配置 guard hooks、对齐 CI 与本地命令 —— **永远只 offer，永不自动安装系统工具**。默认 `--local-only` 模式零项目文件改动；团队成员 pull 后零感知。
 
-当前版本：**v3.1.0**。
+当前版本：**v3.2.0**。
 
 ---
 
@@ -35,6 +35,7 @@
 - **Plugin marketplace 原生标准**（v2.9+）—— `/plugin marketplace add sdsrss/onboard` 直接装
 - **Lazy-load spec**（v3.0+）—— SKILL.md 保留紧凑入口；consumer Claude 进入对应 phase 时才 Read `phases/phase-7.md` / `phases/uninstall.md` / `references/state-schema.md`（元规则 27）
 - **紧凑 plan 输出**（v3.1+）—— Phase 2 / 2.5 卡片默认仅显示 Top-N 高亮项（Phase 2 Top 3、Phase 2.5 每类 Top 1-2），其余折叠为 `+N more`；`--verbose-plan` 还原全量。Phase 0 fresh run 新增首次会话授权提示。Skill description 扩展英文 trigger 表面，提升 discovery
+- **Plugin matrix sub-file**（v3.2+）—— 15-plugin 推荐矩阵抽到 `references/recommendations.md`，SKILL.md 保留 7-bullet sentinel summary；consumer Claude 进入 Phase 2.5 时 Read sub-file（元规则 27 enumeration 扩到 4 段）。3/3 Opus subagent dogfood 验证 lazy-load 契约
 
 ## 快速开始
 
@@ -233,7 +234,7 @@ bash tests/run.sh
 ## 相关链接
 
 - [完整协议规范（SKILL.md）](./skills/onboard/SKILL.md) · [Phase 7 hooks](./skills/onboard/phases/phase-7.md) · [Uninstall mode](./skills/onboard/phases/uninstall.md) · [State schema](./skills/onboard/references/state-schema.md)
-- [Changelog](./CHANGELOG.md)（完整版本历史；v3.1.0 = 当前）
+- [Changelog](./CHANGELOG.md)（完整版本历史；v3.2.0 = 当前）
 - [Releases](https://github.com/sdsrss/onboard/releases)
 - [Issues](https://github.com/sdsrss/onboard/issues)
 - [Claude Code 文档](https://docs.claude.com/en/docs/claude-code/overview)

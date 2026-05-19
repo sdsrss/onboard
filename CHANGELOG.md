@@ -4,7 +4,52 @@
 
 ---
 
-## v3.1.0 — Anthropic plugin comparison + UX hardening (current)
+## v3.2.0 — Plugin matrix sub-file extraction (current)
+
+继 v3.0 三段浅拆后，把 Phase 2.5 类 4 Claude Code plugin recommendation matrix（15 项 plugin + open recommendation 协议 + 用户确认协议）抽到 `skills/onboard/references/recommendations.md`，SKILL.md 原位置保留 7-bullet sentinel summary + cross-ref 元规则 27。3/3 fresh general-purpose subagent (Opus 4.7) dogfood 验证 lazy-load 契约通过（[feedback_skill_spec_lazy_load_sentinel] ship gate）。
+
+Minor bump 因 (a) **LLM-visible metadata protocol shift**——consumer Claude 进入 Phase 2.5 前需要 Read sub-file，sentinel summary 仅做 fail-open；(b) 元规则 27 enumeration 从「三段」扩到「四段」；(c) 零行为变更——matrix 内容、trigger 条件、DSL 全保留；(d) 224 测试断言全数通过；(e) Anthropic `claude-code-setup` 对比分析里的 HIGH-MID 学习点完成（"references/ 按主题切分" 模式收编）。
+
+### Changed (LLM-visible metadata protocol)
+
+- **SKILL.md `## Claude Code plugin recommendation matrix` 段（line 243+）** — 50-line matrix table + open recommendation 协议 + 用户确认协议 完整 spec 抽到 sub-file；SKILL.md 保留 sentinel header + 7-bullet summary（always-on / size-triggered / framework-triggered / infra-triggered / open-rec 协议 / DSL / 绝不自动安装）+ 元规则 27 cross-ref + Read instruction
+- **Phase 2.5 类 4 cross-ref** — `见上文「Claude Code plugin recommendation matrix」` → `见 references/recommendations.md (v3.2+ sub-file ...)`
+- **元规则 27** — 从「三段抽到 sub-file」扩展到「四段」，sub-file 路径列表 + sentinel 列表 + canonical 决策清单同步更新；v3.0 + v3.2 双 stamp。Audit list 同步扩到 4 项
+
+### Added
+
+- **`skills/onboard/references/recommendations.md`** — sub-file 包含：frontmatter prose 引导段 + 设计原则 + 完整 15-项硬编码矩阵（每行 Plugin / Trigger 条件 / 推荐理由）+ Open recommendation 协议 4 步流程 + 用户确认协议样例 + Top-N 与 `--verbose-plan` 交互说明
+
+### Ship evidence (3/3 fresh subagent dogfood, 2026-05-19)
+
+3 个独立 general-purpose subagent (Opus 4.7) 模拟 consumer Claude，分别给出 diverse 项目场景；每个 agent 收到 SKILL.md 路径 + dry-run 约束 + "list every Read call" + "cite canonical source line numbers" 要求。结果 3/3 全数通过：
+
+| Scenario | Sub-file Read? | 元规则 27 cited? | Decisions cite sub-file line? | Plugins recommended |
+|---|---|---|---|---|
+| A · TS+Python monorepo (Next.js + FastAPI + Docker + GH Actions deploy) | ✓ recommendations.md:1-61 | ✓ SKILL.md:1702 + :256 + recommendations.md:4 | ✓ 9 recs + 2 conditional + 4 skipped all cite recommendations.md:&lt;line&gt; | claudemd / claude-mem-lite / code-graph-mcp / serena / frontend-design / qa / setup-deploy / cso / document-release |
+| B · Rust CLI + mkdocs + 12 git tags | ✓ recommendations.md:1-61 | ✓ SKILL.md:1702 + load-bearing quote | ✓ 5 recs + 8 skipped all cite recommendations.md:&lt;line&gt; | claudemd / claude-mem-lite / document-release / seo-technical+seo-content / make-pdf |
+| C · MCP server (mcp+anthropic SDK) + k8s | ✓ recommendations.md:1-61 | ✓ SKILL.md:1702 + :880 cross-ref | ✓ 5 recs + 9 skipped all cite recommendations.md:&lt;line&gt; | claudemd / claude-mem-lite / mcp-builder / claude-api / cso |
+
+**Caveats**（诚实记录，per [feedback_skill_spec_lazy_load_sentinel] cross-model caveat）：3 个 subagent 全是 Opus 4.7 同模型族，未覆盖 Haiku/Sonnet 行为；prompt 显式要求 "cite source line numbers" 可能引导 agent 偏严谨。SKILL.md 自身体积已超 25000-token Read limit（42312 tokens），所有 3 个 agent 都 fallback Grep——sub-file Read 单次完成（~60 行），但 SKILL.md 本身的体积已是后续浅拆的潜在触发条件。Cross-model + 真 plugin install dogfood 仍需用户实测，留作 ship 后 telemetry / 用户反馈触发。
+
+### Migration
+
+- v3.2.0 升级**无用户必做操作**。
+- 任何已有的 Phase 2.5 类 4 decision logic：行为完全等价，trigger 条件 + plugin 列表 + DSL 全保留。
+- Plugin marketplace 用户：`/plugin update onboard` 拉取 sub-file。
+- 标准安装：`bash install.sh update`（v3.0.2+ stage cache 已修，refresh 安全）。
+- 元规则 27 audit list 从 3 项扩到 4 项；后续维护者改 plugin 矩阵需同时：(a) `references/recommendations.md` 主修改；(b) SKILL.md `## Claude Code plugin recommendation matrix` sentinel summary 同步语义；(c) sub-file frontmatter prose 段保留。
+
+### Not changed (intentional)
+
+- **224 测试断言不动** — sub-file 抽离是结构性重构，无新测试 surface（现有 skillmd-links.sh + sentinel-content tests 即覆盖）；现有 224 assertions / 10 tests 全数通过。
+- **零脚本/钩子/installer 改动** — `install.sh` / `hooks/*.sh` / `scripts/*.sh` 内容未触。
+- **未做可视化示例（README screenshot/asciicast）** — 推迟至下次 minor 版本与其他 UX 工作一并发版。
+- **SKILL.md 本体体积未减少**（仍超 Read 单次 limit）— matrix 50 行抽出对总体积影响小；future v3.x 若 Haiku/Sonnet 实测显示 fail-open 严重，再评估更激进的浅拆。
+
+---
+
+## v3.1.0 — Anthropic plugin comparison + UX hardening
 
 基于对 Anthropic 官方 [`claude-code-setup`](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-code-setup) 插件的深度对比分析（同领域 read-only recommender，对照学习 Skill discovery / Top-N output discipline 等模式），落地 3 项 incremental UX 改进。Minor bump 因 (a) 三项均属 **LLM-visible metadata** 改动（plugin skill description / shipped prompt template prose），按 CLAUDE.md §2 hard upgrade 强制 L3 → SemVer minor；(b) 引入新 CLI flag `--verbose-plan` = additive feature；(c) 默认 user-visible 输出行为变化（Phase 2 / 2.5 折叠、Phase 0 tip），需要 explicit migration note；(d) 零行为 breaking、零脚本/钩子改动、224 测试断言全数通过。
 

@@ -11,7 +11,7 @@
 
 `/onboard` is a [Claude Code](https://claude.com/claude-code) Skill that walks a *legacy* project through a structured 10-phase onboarding protocol — discovering stacks, generating a token-compact `CLAUDE.md`, configuring guard hooks, aligning CI with local commands — **all offer-only, never auto-installing system tools**. Default `--local-only` mode writes zero project files; team members pulling the branch see nothing.
 
-Current version: **v3.1.0**.
+Current version: **v3.2.0**.
 
 ---
 
@@ -35,6 +35,7 @@ Current version: **v3.1.0**.
 - **Plugin marketplace standard** (v2.9+) — `/plugin marketplace add sdsrss/onboard` works natively.
 - **Lazy-loaded spec** (v3.0+) — SKILL.md keeps a compact entry; consumer Claude reads `phases/phase-7.md` / `phases/uninstall.md` / `references/state-schema.md` only when entering those scopes (meta-rule 27).
 - **Compact plan output** (v3.1+) — Phase 2 / 2.5 cards default to Top-N highlights (Top 3 for plan, Top 1-2 per install category), remainder folded as `+N more`; `--verbose-plan` restores full listing. Phase 0 now emits a first-run session-auth tip. Skill description expanded with English trigger surface for better discovery.
+- **Plugin matrix sub-file** (v3.2+) — 15-plugin recommendation matrix extracted to `references/recommendations.md`; SKILL.md keeps a 7-bullet sentinel summary; consumer Claude Reads the sub-file when entering Phase 2.5 (meta-rule 27 enumeration expanded to 4 sub-files). 3/3 Opus subagent dogfood verified the lazy-load contract.
 
 ## Quick start
 
@@ -233,7 +234,7 @@ No speculative features. See [`CLAUDE.md`](./CLAUDE.md) for full repo-maintainer
 ## Links
 
 - [Full protocol spec (SKILL.md)](./skills/onboard/SKILL.md) · [Phase 7 hooks](./skills/onboard/phases/phase-7.md) · [Uninstall mode](./skills/onboard/phases/uninstall.md) · [State schema](./skills/onboard/references/state-schema.md)
-- [Changelog](./CHANGELOG.md) (full history; v3.1.0 = current)
+- [Changelog](./CHANGELOG.md) (full history; v3.2.0 = current)
 - [Releases](https://github.com/sdsrss/onboard/releases)
 - [Issues](https://github.com/sdsrss/onboard/issues)
 - [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/overview)
