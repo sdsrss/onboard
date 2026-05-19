@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v3.0.2). The "code" being maintained is:
+This repo is **not** an application — it is the `/onboard` **Claude Code Skill** itself (current version: v3.1.0). The "code" being maintained is:
 
 - `skills/onboard/SKILL.md` (v2.10 moved here from repo root) — the workflow spec defining a 10-phase onboarding protocol (Phase 0 / 0.5 / 1 / 1.5 / 1.7 / 2 / 2.5 / 3-8), Doctor Mode (`--doctor`, v2.5+; D1-D15 checks), Mode model (`--local-only` default vs `--share`, v2.6+), Install Plan / Plugin recommendation matrix (v2.7+), Uninstall Mode + marker/snapshot protocols (v2.8+), and Plugin marketplace install-source detection (v2.9+). **v3.0 起 Phase 7 / Uninstall Mode / 状态文件结构 三段抽到 sub-file** (`skills/onboard/phases/phase-7.md` / `skills/onboard/phases/uninstall.md` / `skills/onboard/references/state-schema.md`)；SKILL.md 原位置保留 sentinel header + 4-8 bullet summary + `Read sub-file.md` 指令；consumer Claude 进入对应 phase 前必须 Read sub-file（元规则 27）。This file's frontmatter (`name: onboard`, `disable-model-invocation: true`, `allowed-tools: Read, Glob, Grep`) registers it as a Skill — at `skills/<name>/` for plugin discovery, or under standalone `.claude/skills/onboard/` after install.sh.
 - `skills/onboard/hooks/*.sh` (v2.10 moved) — 4 hook scripts; git index mode `100755` (executable).

@@ -5,14 +5,14 @@
     "name": "sds",
     "email": "2576vschsq@privaterelay.appleid.com"
   },
-  "description": "Marketplace hosting the /onboard skill — legacy project onboarding protocol for Claude Code (compact CLAUDE.md, hook installation, forbidden zone management, CI alignment, install plan).",
-  "version": "3.0.2",
+  "description": "Marketplace hosting the /onboard skill — legacy project onboarding for Claude Code with multi-stack support, token-budgeted CLAUDE.md, 4 guard hooks, forbidden zone management, CI alignment, --doctor health checks, and reversible uninstall.",
+  "version": "3.1.0",
   "plugins": [
     {
       "name": "onboard",
       "source": "./",
-      "description": "Legacy project onboarding protocol for Claude Code. Analyzes the project, generates a compact CLAUDE.md, configures hooks, manages forbidden zones, aligns CI, and batches install plan. Default mode --local-only writes zero PROJECT files (no team pollution).",
-      "version": "3.0.2",
+      "description": "Legacy project onboarding for Claude Code — analyzes the codebase, generates a token-budgeted CLAUDE.md, wires 4 guard hooks, manages forbidden zones, and aligns CI with local commands. Default `--local-only` writes zero PROJECT files (no team pollution). Use when setting up Claude Code on a legacy project, configuring guard hooks, generating CLAUDE.md, running --doctor health checks, or uninstalling onboard.",
+      "version": "3.1.0",
       "author": {
         "name": "sds"
       },

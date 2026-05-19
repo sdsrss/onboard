@@ -4,7 +4,38 @@
 
 ---
 
-## v3.0.2 — 4-round dogfood QA (current)
+## v3.1.0 — Anthropic plugin comparison + UX hardening (current)
+
+基于对 Anthropic 官方 [`claude-code-setup`](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-code-setup) 插件的深度对比分析（同领域 read-only recommender，对照学习 Skill discovery / Top-N output discipline 等模式），落地 3 项 incremental UX 改进。Minor bump 因 (a) 三项均属 **LLM-visible metadata** 改动（plugin skill description / shipped prompt template prose），按 CLAUDE.md §2 hard upgrade 强制 L3 → SemVer minor；(b) 引入新 CLI flag `--verbose-plan` = additive feature；(c) 默认 user-visible 输出行为变化（Phase 2 / 2.5 折叠、Phase 0 tip），需要 explicit migration note；(d) 零行为 breaking、零脚本/钩子改动、224 测试断言全数通过。
+
+### Changed (user-visible default)
+
+- **HIGH-1 · Skill discovery: description 字段扩展**（`skills/onboard/SKILL.md` frontmatter + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`）— 从单句中文升级为「中文主句 + 英文 trigger 块」，明示 `--doctor` / `--uninstall` / `--local-only` / 多语言栈等触发场景。对照源：Anthropic `claude-automation-recommender` 的 60+ 词 "Use when …" 描述风格。无用户操作要求；纯增 discovery 信号（slash-command 列表搜索 + 多语言索引）。
+- **MID-1 · Phase 0 卡片新增 `tip:` 字段** — Fresh run 时输出一行 actionable 提示 `首次 Bash/Read 弹窗建议选『允许本会话』；逐次确认也安全`。`--resume` / `--update` 跳过（同会话延续），`--doctor` 不进 Phase 0。原 SKILL.md 文件头同款提示一直藏在 frontmatter 后注释里、consumer Claude 不会主动传达；本版抬到用户可见的卡片层。
+- **MID-2 · Phase 2 / Phase 2.5 卡片 Top-N 折叠** — Phase 2 plan 默认仅高亮 Top 3 items（排序：`risk:high` > `risk:medium`+`installs!=[]` > `mutex_group` 决断项 > 其余），剩余折叠为 `+N more (use --verbose-plan to show all)`；Phase 2.5 install plan 类 1 默认显示 Top 2、类 4 显示 Top 3 matrix + open 全列，类 2/3 不折叠（数量本身少）。授权 DSL 不变——折叠仅影响默认显示，`approve <id>` 可对任一 id（含折叠项）操作。对照源：Anthropic 插件 "Recommend 1-2 of each type: Don't overwhelm" 纪律。
+
+### Added
+
+- **`--verbose-plan` CLI flag** — Phase 2 / 2.5 卡片展示全部项（关闭 MID-2 折叠）。`argument-hint` 已同步；与其他 flag 全部正交。
+- **阶段卡片输出契约新增 `tip:` 字段**（universal schema）— 可选 actionable 一次性提示；省略则不输出此行。后续 phase 可复用此字段（v3.1.0 仅 Phase 0 使用）。
+
+### Migration
+
+- v3.1.0 升级**无用户必做操作**。
+- 觉得 Phase 2/2.5 默认显示项太少 → 加 `--verbose-plan` 还原 v3.0.x 行为。
+- Plugin marketplace 用户：`/plugin update onboard` 拉取；plugin.json 描述变化 marketplace 自动重抓。
+- 标准安装：`bash install.sh update`（v3.0.2+ stage cache 已修，refresh 安全）。
+
+### Not changed (intentional)
+
+- **224 测试断言不动** — 三项 UX 改动均不引入新测试 surface；现有 224 assertions / 10 tests 全数通过。
+- **零脚本/钩子/installer 改动** — `install.sh` / `hooks/*.sh` / `scripts/*.sh` 内容未触；settings templates 中仅 `_onboard_version` 标签 + comment 同步到 3.1.0。
+- **未做 HIGH-2（recommendations.md 抽离）** — 按 `feedback_skill_spec_lazy_load_sentinel` 该项需 fresh subagent 3/3 dogfood gate，工程成本与 v3.1.0 范围不匹配；推迟至 v3.2.0。
+- **未做可视化示例（README screenshot/asciicast）** — 推迟至 v3.2.0 与 HIGH-2 一并发版。
+
+---
+
+## v3.0.2 — 4-round dogfood QA
 
 Real-user end-to-end QA on 2026-05-19，4 轮，每轮设计真实安装 / 使用场景，发现 bug → 当场修 → 重测。Total 测试断言 218 → **224 assertions** / 10 tests / 0 fail。Six fixes across hook robustness, installer UX, and docs. Patch bump 因 (a) 全部 bug 修复无新功能，(b) 一个 HIGH 级安全回归（缺 jq 时 guard 静默失效）已硬化为 install 拒装，(c) 三个 HIGH 级 UX bug（doctor 崩 / README path C 重跑挂 / 缺 jq 装坏）影响首次安装体验，(d) v3.0.1 `(current)` 标签转移到本节。
 

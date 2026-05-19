@@ -1,12 +1,12 @@
 ---
 name: onboard
-description: 旧项目接入 Claude Code 的标准化引导流程
+description: 旧项目接入 Claude Code 的标准化引导流程——多语言栈、token-budgeted CLAUDE.md、4 个 guard hook、可逆 uninstall、健康诊断。Use when setting up Claude Code on a legacy project, configuring guard hooks, generating CLAUDE.md, aligning CI with local commands, running --doctor health checks, uninstalling onboard, or migrating an older install.
 argument-hint: "[--local-only|--share] [--dry-run] [--phase=<0-8>] [--resume] [--update] [--strict] [--isolate-branch] [--doctor] [--uninstall[=skill|all]] [--allow-large-claude-md]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep
 ---
 
-# /onboard — Legacy Project Onboarding Protocol (v3.0.2)
+# /onboard — Legacy Project Onboarding Protocol (v3.1.0)
 
 参数：`$ARGUMENTS`
 
@@ -75,8 +75,9 @@ allowed-tools: Read, Glob, Grep
 - `--doctor`（v2.5 新增）：诊断模式。不跑任何 Phase，不写 PROJECT/OUTPUT，仅做健康检查 + RUNTIME log。详见下文「Doctor Mode」章节。
 - `--uninstall[=skill|all]`（v2.8 新增；v2.11 参数化）：卸载模式。`=skill` 只卸 user-global skill 包 + plugin cache + mirror，**保留项目侧所有 onboard 写入**（hook 脚本、settings 引用、CLAUDE.md 内容）；`=all`（裸 `--uninstall` 等价，向后兼容 v2.8+）卸 user-global + 项目侧全部 onboard 痕迹。详见下文「Uninstall Mode」章节。
 - `--allow-large-claude-md`（v2.7 新增）：覆盖 CLAUDE.md token 硬上限 5000。仅在项目实测确需超长 CLAUDE.md 时使用；触发 Phase 3 hard AUTH 并标 `phase_3.token_budget_override: true`。
+- `--verbose-plan`（v3.1 新增）：Phase 2 plan 卡片 + Phase 2.5 install plan 默认 Top-N 折叠展示（"don't overwhelm"原则）；本 flag 展示全部项。折叠时显式提示 `+N more (use --verbose-plan to show all)`，用户不打这个 flag 也能看见有几项被折叠。
 
-`--resume`、`--update`、`--doctor`、`--uninstall` 四者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。
+`--resume`、`--update`、`--doctor`、`--uninstall` 四者互斥。`--local-only` 与 `--share` 互斥（默认 `--local-only`，显式给 `--share` 才入仓）。`--verbose-plan` 与其他 flag 全部正交。
 
 ### 阶段卡片输出契约
 
@@ -90,6 +91,7 @@ outputs:  <OUTPUT 文件路径>
 local_side_effects: <LOCAL-SIDE-EFFECT 路径>
 verify:   <验证命令及结果摘要>
 next:     <下一阶段或建议>
+tip:      <可选 - actionable 一次性提示给用户；省略则不输出此行>
 ```
 
 ---
@@ -438,6 +440,7 @@ Uninstall Mode 展示**最早的 `pre-modify` 快照**作为 restore 候选—�
 
 3. PROJECT 工作区状态：过滤 RUNTIME 路径后 `git status --porcelain` 为空，否则等待 `continue dirty`。
 4. 按表检查工具可用性。
+4.5. **首次工具弹窗提示（v3.1 新增）**：Phase 0 卡片输出 `tip:` 行——`首次 Bash/Read 弹窗建议选『允许本会话』；逐次确认也安全，两种节奏均可`。仅 fresh run 输出；`--resume` / `--update` 跳过（同会话延续）；`--doctor` 不进 Phase 0。
 
 5. **Team-signal 评分（v2.6 新增）**：扫描以下 6 个信号，每个 1 分：
 
@@ -540,6 +543,7 @@ local_side_effects:
   - .claude/local-only/  (created)
   - .git/info/exclude  (appended)
 next:         Phase 1 (Discovery)
+tip:          首次 Bash/Read 弹窗建议选『允许本会话』；逐次确认也安全
 ```
 
 ---
@@ -830,6 +834,7 @@ next: Phase 2 (Plan + Authorization)
 4. 自动注入 `forbidden-zones-register` item。
 5. **多栈展开**：对每个语言栈分别生成 `lint-<stack>` / `format-<stack>` / `typecheck-<stack>` 等 item，命名空间化。
 6. 输出 plan + DSL。
+7. **Top-N 渲染（v3.1 新增）**：默认仅高亮显示 Top 3 plan items（排序：`risk:high` > `risk:medium`+`installs!=[]` > `mutex_group` 决断项 > 其余），剩余 items 折叠为单行 `+N more (use --verbose-plan to show all)`。授权 DSL 不变——折叠仅影响默认显示，用户可对任一 id `approve` / `skip`，无论是否在 Top 3 中。`--verbose-plan` 触发完整展示。**理由**：对比 Anthropic `claude-automation-recommender` 的 "Top 1-2 per category — don't overwhelm" 纪律，避免大项目首次 plan 输出淹没用户。
 
 ### Plan item schema
 
@@ -891,6 +896,7 @@ abort
 - 仅 `--share` 模式允许实际安装；local-only 模式**仅列出**，让用户决定是否在 share 后跑
 - 数据源：Phase 4 工具选型矩阵中缺失的项（按栈）；Phase 1 检出团队 lint 配置但未装的 linter；Phase 1.7 推断的项目内 helper 工具
 - 安装协议：`approve dev-tools-all` 一次批准全部；`approve dev-tool <id>` 单批；`skip <id>`
+- **Top-N 折叠（v3.1 新增）**：本类默认显示 Top 2（按 `missing severity` × `stack overall_size` 排序）；其余折叠为 `+N more in dev-tools (use --verbose-plan)`。`approve dev-tools-all` 仍批准全部（含折叠项），`approve dev-tool <id>` 可指定任一 id（不限于 Top 2）。
 
 **类 2 · System CLIs**（PATH 级 binary：`jq`、`gh`、`glab`、`make`、`gtimeout`/`coreutils`、`mise` 等）：
 - **绝不**自动执行——按 OS / 包管理器矩阵生成命令字符串列出
@@ -915,12 +921,11 @@ abort
 ─── Phase 2.5 · Install Plan ───
 mode: local-only
 
-类 1 · Dev quality tools (4 项)
+类 1 · Dev quality tools (4 项，显示 Top 2)
   仅 share 模式可装；local-only 仅列出
   [ ] ruff             missing on apps/api (poetry add --group dev ruff)
   [ ] mypy             missing on apps/api (poetry add --group dev mypy)
-  [ ] vitest           missing on apps/web (pnpm add -D vitest)
-  [ ] @types/node      missing on apps/web (pnpm add -D @types/node)
+  +2 more in dev-tools (use --verbose-plan to show all)
 
 类 2 · System CLIs (2 项，offer-only)
   [ ] gh               github CLI (host adapter 探测出 origin=github)
@@ -939,11 +944,11 @@ mode: local-only
        mise / asdf 已装 → 建议 mise use node@20.11.0
        未装 → https://nodejs.org/en/download
 
-类 4 · Claude Code plugins (4 项 matrix + 1 open)
+类 4 · Claude Code plugins (4 项 matrix + 1 open，显示 Top 3 matrix + open 全列)
   [Y] claudemd                       always-on
   [Y] claude-mem-lite                always-on
   [ ] code-graph-mcp                 multi-stack triggered
-  [ ] frontend-design                react detected
+  +1 more in matrix (use --verbose-plan to show all)
   [ ] [open] fastapi-route-explorer  推断自 apps/api FastAPI 路由（open-rec）
 
 DSL:
