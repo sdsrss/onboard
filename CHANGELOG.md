@@ -4,7 +4,27 @@
 
 ---
 
-## v3.0.0 — C1 SKILL.md 浅拆 (current)
+## v3.0.1 — user-simulation dogfood follow-up (current)
+
+User-simulation dogfood (2026-05-19，临时沙箱模拟 4 类真实安装路径) 发现两处缺陷，已修。Total 测试断言 214 → **218 assertions** / 10 tests / 0 fail。Patch bump 因 (a) 都是 bug 修复（installer untracked 泄漏 + README 一字不差跑不通），无新功能，(b) `install.sh` 行为面"reset --hard 后清 untracked"是兼容修复（先前的"泄漏"不是公开契约），(c) v3.0.0 `(current)` 标签移除。
+
+### Fixed
+
+- **`install.sh` update path 不清 stage untracked 文件**（Low；installer logic）。`git reset --hard` 默认忽略 untracked，stage `skills/onboard/` 子目录内任何用户/外因落下的 stray 文件都会通过 `deploy_skill_from_stage` 的 `cp -a` 泄漏进 INSTALL_DIR 并跨次 update 持续残留。修法：reset 之后追加 `git clean -fdx`（STAGE_DIR 已是 throwaway 安装缓存，Iron Law 14 stage-cache 豁免照旧）。Repro：`bash install.sh install`，向 `~/.claude/.cache/onboard-source/skills/onboard/STRAY.txt` 写文件，再 `bash install.sh update` — 修前 STRAY.txt 出现在 `~/.claude/skills/onboard/`，修后无泄漏。
+- **README Option C / 路径 C `git clone` 指令完全装不上**（Medium；docs）。仓库布局 v2.10 起把 skill 移到 `skills/onboard/`（Claude Code plugin 标准），但 README Option C 的 `git clone ... ~/.claude/skills/onboard` 会把 SKILL.md 嵌在 `~/.claude/skills/onboard/skills/onboard/SKILL.md` 二层目录里——Claude Code 找不到 skill，下一行 `chmod +x ~/.claude/skills/onboard/hooks/*.sh` 直接报 No such file or directory。修法：改成 clone 到 `/tmp/onboard-src` + `cp -r /tmp/onboard-src/skills/onboard ~/.claude/skills/` 两步式。`README.md` + `README.zh-CN.md` 同款修。Repro：见 `tasks/2026-05-19-user-simulation-dogfood.md` 沙箱日志。
+
+### Added
+
+- **`install-roundtrip.sh` STEP 4b**: +4 个断言（stray 文件 plant / update exit 0 / no leak in INSTALL_DIR / stage cleaned by git clean）。锁住 stray-file-leak 回归口。`install-roundtrip.sh` 34 → 38 assertions。总测试 214 → **218 assertions** / 10 tests / 0 fail。
+
+### Not changed (intentional)
+
+- **未 bump version**。dogfood 周期内的 documentation+installer 修复，按当前 release 节奏更适合并入下一个 patch（v3.0.1）。`plugin.json` / `marketplace.json` 版本号未动；SKILL.md header 仍 `(v3.0.0)`。
+- **未改 SKILL.md 本体**。两 bug 均不在 spec 层面，install.sh 是 installer infra、README 是文档。
+
+---
+
+## v3.0.0 — C1 SKILL.md 浅拆
 
 v3 系列首版。SKILL.md 浅拆改造：3 段最重独立块抽到 sub-file，元规则 27 落地。Major bump 因 (a) **LLM-visible metadata protocol shift**（SKILL.md 不再是 entry-only-load，consumer Claude 进入对应 phase 前需要 Read sub-file），(b) sub-file 加载契约本身是新 spec 条款（元规则 27），(c) prior-AUTH override 自 memory `project_v2_11_candidates.md` 2026-05-15 "不做"判断（重启闸门 1/2 仍保留作为深拆评估触发条件，3/4 作废）。**Sub-file scope 仅限**: Phase 7 / Uninstall Mode / 状态文件结构；其余 phase / 总则 / Iron Laws / 元规则 / Marker conventions 保留在 SKILL.md。Migration note: consumer 端无显式动作要求——SKILL.md sentinel summary 中的 "Read `sub-file.md`" 指令 + 元规则 27 cross-ref 即可触发 lazy-load。Promoted from `v3.0.0-rc.1` (commit `9d940eb`) after 3/3 subagent dogfood verified lazy-load 契约。
 

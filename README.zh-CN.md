@@ -11,7 +11,7 @@
 
 `/onboard` 是 [Claude Code](https://claude.com/claude-code) 的 Skill，把 *legacy* 项目走一遍 10 阶段标准化引导 —— 探测语言栈、生成 token 紧凑的 `CLAUDE.md`、配置 guard hooks、对齐 CI 与本地命令 —— **永远只 offer，永不自动安装系统工具**。默认 `--local-only` 模式零项目文件改动；团队成员 pull 后零感知。
 
-当前版本：**v3.0.0**。
+当前版本：**v3.0.1**。
 
 ---
 
@@ -64,9 +64,13 @@ curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bas
 
 ### 路径 C · 手动 `git clone`
 
+仓库里 skill 文件位于 `skills/onboard/` 子目录（Claude Code plugin 标准布局），直接 clone 到 `~/.claude/skills/onboard` 会让 `SKILL.md` 嵌在二层目录中。先 clone 到临时位置，再把 skill 子树拷过去：
+
 ```bash
-git clone --depth 1 https://github.com/sdsrss/onboard.git ~/.claude/skills/onboard
-chmod +x ~/.claude/skills/onboard/hooks/*.sh
+git clone --depth 1 https://github.com/sdsrss/onboard.git /tmp/onboard-src
+mkdir -p ~/.claude/skills
+cp -r /tmp/onboard-src/skills/onboard ~/.claude/skills/
+chmod +x ~/.claude/skills/onboard/hooks/*.sh ~/.claude/skills/onboard/scripts/*.sh
 ```
 
 ### 首次运行
@@ -181,7 +185,7 @@ Claude 会先打印**执行计划** —— 阶段清单、当前模式（默认 
 
 ```bash
 bash tests/run.sh
-# 10 个测试 / 214 个断言 / 0 fail（v3.0.0）
+# 10 个测试 / 218 个断言 / 0 fail（v3.0.1）
 ```
 
 ---
@@ -224,7 +228,7 @@ bash tests/run.sh
 ## 相关链接
 
 - [完整协议规范（SKILL.md）](./skills/onboard/SKILL.md) · [Phase 7 hooks](./skills/onboard/phases/phase-7.md) · [Uninstall mode](./skills/onboard/phases/uninstall.md) · [State schema](./skills/onboard/references/state-schema.md)
-- [Changelog](./CHANGELOG.md)（完整版本历史；v3.0.0 = 当前）
+- [Changelog](./CHANGELOG.md)（完整版本历史；v3.0.1 = 当前）
 - [Releases](https://github.com/sdsrss/onboard/releases)
 - [Issues](https://github.com/sdsrss/onboard/issues)
 - [Claude Code 文档](https://docs.claude.com/en/docs/claude-code/overview)

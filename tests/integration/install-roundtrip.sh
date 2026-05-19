@@ -174,6 +174,31 @@ else
   fail "update did not overwrite drift (sha still=$RECOVERED_SHA, expected=$ORIG_SHA)"
 fi
 
+hdr "STEP 4b: update cleans untracked stage files (no leak into INSTALL_DIR)"
+# Plant a stray file inside the stage's skill subtree. Without `git clean -fdx`
+# after `git reset --hard`, the cp -a in deploy_skill_from_stage would copy
+# STRAY.txt into INSTALL_DIR and the file would persist across every update.
+STRAY_STAGE="$STAGE_DIR/skills/onboard/STRAY.txt"
+echo "stray content planted by test" > "$STRAY_STAGE"
+[ -f "$STRAY_STAGE" ] && pass "stray file planted in stage" || fail "stray plant failed"
+
+if run_installer update >"$SANDBOX/update-stray.log" 2>&1; then
+  pass "update with stray file exits 0"
+else
+  fail "update with stray file failed (exit $?). log: $SANDBOX/update-stray.log"
+fi
+
+if [ ! -f "$INSTALL_DIR/STRAY.txt" ]; then
+  pass "stray file did NOT leak into INSTALL_DIR"
+else
+  fail "stray file leaked into INSTALL_DIR (missing git clean after reset --hard)"
+fi
+if [ ! -f "$STRAY_STAGE" ]; then
+  pass "stray file removed from stage by git clean"
+else
+  fail "stray file remained in stage (git clean -fdx did not run)"
+fi
+
 hdr "STEP 5: uninstall (ONBOARD_CONFIRM_UNINSTALL=yes; P-A9 mirror cleanup, v2.11+)"
 # Pre-populate mirror dir (simulating plugin-mode mirror state) so P-A9 has
 # something to clean. The sandboxed HOME means we're not touching real ~.

@@ -11,7 +11,7 @@
 
 `/onboard` is a [Claude Code](https://claude.com/claude-code) Skill that walks a *legacy* project through a structured 10-phase onboarding protocol — discovering stacks, generating a token-compact `CLAUDE.md`, configuring guard hooks, aligning CI with local commands — **all offer-only, never auto-installing system tools**. Default `--local-only` mode writes zero project files; team members pulling the branch see nothing.
 
-Current version: **v3.0.0**.
+Current version: **v3.0.1**.
 
 ---
 
@@ -64,9 +64,13 @@ Environment overrides: `ONBOARD_TARGET=project|user` · `ONBOARD_REPO` · `ONBOA
 
 ### Option C · Manual `git clone`
 
+The skill files live at `skills/onboard/` inside the repo (Claude Code plugin convention), so a direct clone to `~/.claude/skills/onboard` would nest `SKILL.md` two levels deep. Clone to scratch, then copy the skill subtree:
+
 ```bash
-git clone --depth 1 https://github.com/sdsrss/onboard.git ~/.claude/skills/onboard
-chmod +x ~/.claude/skills/onboard/hooks/*.sh
+git clone --depth 1 https://github.com/sdsrss/onboard.git /tmp/onboard-src
+mkdir -p ~/.claude/skills
+cp -r /tmp/onboard-src/skills/onboard ~/.claude/skills/
+chmod +x ~/.claude/skills/onboard/hooks/*.sh ~/.claude/skills/onboard/scripts/*.sh
 ```
 
 ### First run
@@ -181,7 +185,7 @@ Run the in-repo test suite:
 
 ```bash
 bash tests/run.sh
-# 10 integration tests / 214 assertions / 0 fail (v3.0.0)
+# 10 integration tests / 218 assertions / 0 fail (v3.0.1)
 ```
 
 ---
@@ -224,7 +228,7 @@ No speculative features. See [`CLAUDE.md`](./CLAUDE.md) for full repo-maintainer
 ## Links
 
 - [Full protocol spec (SKILL.md)](./skills/onboard/SKILL.md) · [Phase 7 hooks](./skills/onboard/phases/phase-7.md) · [Uninstall mode](./skills/onboard/phases/uninstall.md) · [State schema](./skills/onboard/references/state-schema.md)
-- [Changelog](./CHANGELOG.md) (full history; v3.0.0 = current)
+- [Changelog](./CHANGELOG.md) (full history; v3.0.1 = current)
 - [Releases](https://github.com/sdsrss/onboard/releases)
 - [Issues](https://github.com/sdsrss/onboard/issues)
 - [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/overview)

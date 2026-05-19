@@ -171,6 +171,10 @@ do_update() {
     # the correct operation here; the rule doesn't reach into installer state.
     git fetch --depth 1 origin "$BRANCH" >/dev/null 2>&1
     git reset --hard "origin/$BRANCH" >/dev/null 2>&1
+    # reset --hard ignores untracked files; without this clean a stray file at
+    # $STAGE_DIR/skills/onboard/<name> leaks into INSTALL_DIR via the cp -a in
+    # deploy_skill_from_stage and persists across updates.
+    git clean -fdx >/dev/null 2>&1
     popd >/dev/null
   fi
 
