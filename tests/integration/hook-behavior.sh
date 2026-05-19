@@ -410,6 +410,62 @@ else
   pass "post-edit-check did NOT leak to .claude/onboarding-logs"
 fi
 
+hdr "R4 · malformed stacks.json — fail-controlled, not fail-noisy"
+R4_HOME="$SANDBOX/r4"
+R4_LOGS="$R4_HOME/logs"
+mkdir -p "$R4_HOME" "$R4_LOGS"
+
+echo 'not valid json [' > "$R4_HOME/stacks.json"
+echo 'src/a.ts' > "$R4_HOME/touched.txt"
+
+# post-edit-check: must exit 0 (PostToolUse can't block) + emit ONE clean
+# stderr warning that names the path + suggests --doctor — no `jq: parse error`.
+CLAUDE_PROJECT_DIR="$R4_HOME" \
+ONBOARD_STACKS_FILE="$R4_HOME/stacks.json" \
+ONBOARD_TOUCHED_LOG="$R4_HOME/touched.txt" \
+ONBOARD_LOG_DIR="$R4_LOGS" \
+bash "$HOOKS/post-edit-check.sh" < <(echo '{"tool_input":{"file_path":"src/a.ts"}}') >"$R4_HOME/pec.out" 2>"$R4_HOME/pec.err"
+pec_exit=$?
+if [ "$pec_exit" -eq 0 ]; then
+  pass "post-edit-check exits 0 on malformed stacks.json (PostToolUse can't block)"
+else
+  fail "post-edit-check exited $pec_exit on malformed stacks.json (expected 0)"
+fi
+if grep -q 'is not valid JSON' "$R4_HOME/pec.err" && grep -q -- '--doctor' "$R4_HOME/pec.err"; then
+  pass "post-edit-check stderr names file + suggests --doctor"
+else
+  fail "post-edit-check stderr missing actionable msg (got: $(cat "$R4_HOME/pec.err"))"
+fi
+if grep -q 'jq: parse error' "$R4_HOME/pec.err"; then
+  fail "post-edit-check leaked raw 'jq: parse error' to stderr (must be filtered)"
+else
+  pass "post-edit-check did NOT leak raw 'jq: parse error'"
+fi
+
+# stop-verify: must emit clean `decision: block` JSON to stdout + exit 0
+# (Iron Law 15); no raw jq error to stderr.
+CLAUDE_PROJECT_DIR="$R4_HOME" \
+ONBOARD_STACKS_FILE="$R4_HOME/stacks.json" \
+ONBOARD_TOUCHED_LOG="$R4_HOME/touched.txt" \
+ONBOARD_LOG_DIR="$R4_LOGS" \
+bash "$HOOKS/stop-verify.sh" < <(echo '{}') >"$R4_HOME/sv.out" 2>"$R4_HOME/sv.err"
+sv_exit=$?
+if [ "$sv_exit" -eq 0 ]; then
+  pass "stop-verify exits 0 on malformed stacks.json (Iron Law 15)"
+else
+  fail "stop-verify exited $sv_exit (expected 0; out=$(cat "$R4_HOME/sv.out"); err=$(cat "$R4_HOME/sv.err"))"
+fi
+if jq -e '.decision == "block"' "$R4_HOME/sv.out" >/dev/null 2>&1; then
+  pass "stop-verify emits decision: block JSON on malformed stacks.json"
+else
+  fail "stop-verify did NOT emit decision:block JSON (out: $(cat "$R4_HOME/sv.out"))"
+fi
+if jq -er '.reason' "$R4_HOME/sv.out" 2>/dev/null | grep -q -- '--doctor'; then
+  pass "stop-verify reason suggests /onboard --doctor"
+else
+  fail "stop-verify reason missing --doctor suggestion"
+fi
+
 hdr "FINAL REPORT"
 echo "  pass: $PASS"
 echo "  fail: $FAIL"

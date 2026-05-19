@@ -4,7 +4,46 @@
 
 ---
 
-## v3.0.1 — user-simulation dogfood follow-up (current)
+## v3.0.2 — 4-round dogfood QA (current)
+
+Real-user end-to-end QA on 2026-05-19，4 轮，每轮设计真实安装 / 使用场景，发现 bug → 当场修 → 重测。Total 测试断言 218 → **224 assertions** / 10 tests / 0 fail。Six fixes across hook robustness, installer UX, and docs. Patch bump 因 (a) 全部 bug 修复无新功能，(b) 一个 HIGH 级安全回归（缺 jq 时 guard 静默失效）已硬化为 install 拒装，(c) 三个 HIGH 级 UX bug（doctor 崩 / README path C 重跑挂 / 缺 jq 装坏）影响首次安装体验，(d) v3.0.1 `(current)` 标签转移到本节。
+
+### Fixed (Round 1)
+
+- **`install.sh doctor` exits 1 + truncates output on legacy install missing `scripts/` or `hooks/` subdir** (HIGH; installer). `set -euo pipefail` + `find $MISSING_DIR 2>/dev/null | wc -l` triggers pipefail in command substitution, aborting mid-diagnostic. Fix: guard each `find` with `[ -d ... ]` so `script_count` / `exec_count` default to 0 cleanly. Doctor now completes full output + exit 0 on any partial install state.
+- **`curl | bash -s -- uninstall` silently "aborted" with no actionable hint** (MED; UX). Non-TTY branch reads `ONBOARD_CONFIRM_UNINSTALL` env defaulting to `n`; if user didn't set it, abort message gave zero indication. Fix: warn before abort with `re-run with ONBOARD_CONFIRM_UNINSTALL=yes to proceed`.
+- **Mirror-only uninstall printed "skill files removed" even when `INSTALL_DIR` never existed** (LOW; UX). Fix: branch the success message on `removed_skill` flag; mirror-only case now says `cleanup complete (no skill install dir was present)`.
+- **README badge stale `tests-214 passing`** while suite was 218 assertions since v2.12 (MED; docs). Both `README.md` + `README.zh-CN.md` badges updated. `scripts/verify-counts.sh` extended to mechanically check `tests-N%20passing` badges in both READMEs — same drift class will now block release-preflight.
+
+### Fixed (Round 2)
+
+- **`curl | bash -s -- install` with `ONBOARD_NO_OVERWRITE=1` printed unrunnable hints** (MED; UX). 5 sites in `install.sh` used bare `$0` which expanded to literal `bash` under pipe invocation, producing `to refresh: bash update` (no-op) and similar. Fix: new `self_cmd()` helper — returns `$0` when invoked from a real file, else canonical `curl ... | bash -s --` recipe. Both pipe + local invocations now produce copy-pasteable instructions.
+
+### Fixed (Round 3)
+
+- **`install.sh` only warned on missing `jq`; all 4 hooks then silently passed every dangerous command** (HIGH security; installer). Hooks shell out to `jq` for both input parsing AND deny-payload construction; without jq each hook exits 127 with `command not found`, no `permissionDecision: deny` JSON is emitted, Claude Code defaults to allow. guard-bash + guard-edit become decorative. Fix: `check_deps()` now exits 1 with a 4-platform install hint instead of warning. README requirements section updated in both languages.
+- **README path C `git clone … /tmp/onboard-src` failed exit 128 on re-run** (HIGH; docs). User typo + re-run → `destination path already exists`. Fix: both READMEs now use `SRC=$(mktemp -d -t onboard-src.XXXXXX)` + trailing `rm -rf "$SRC"` so re-runs always succeed.
+- **`install.sh help` heredoc listed 4 actions; invalid-action error listed 5** (LOW; docs). Fix: heredoc now lists `help` too.
+
+### Fixed (Round 4)
+
+- **`post-edit-check.sh` exit 5 with no message on malformed `stacks.json`** + **`stop-verify.sh` leaked raw `jq: parse error` to stderr without `decision: block` JSON** (both MED; hook resilience). Either hook losing `set -e + pipefail` mid-jq leaves Claude Code with non-actionable error and (for Stop) no block payload → potential infinite retry. Fix: both hooks now `jq empty "$STACKS_FILE"` validate first; post-edit-check emits one-line `--doctor` suggestion on stderr; stop-verify emits a clean `{decision:"block", reason:"…/onboard --doctor…"}` payload. Iron Law 15 (exit 0 + stdout JSON, never mixed) preserved. Added 6 new assertions to `hook-behavior.sh` (49 → 55) to lock these in.
+
+### Added
+
+- **`scripts/verify-counts.sh` README badge coverage** — was checking CLAUDE.md inventory + CHANGELOG total only; now also greps `tests-N%20passing` in both READMEs. Lesson: cross-cutting drift class needs mechanical check, not heroic discipline.
+- **`install.sh self_cmd()` helper** — first util in the script; future hint sites should use `$(self_cmd)` instead of bare `$0`.
+
+### Not changed (intentional)
+
+- **No version bump in this section** — `plugin.json` / `marketplace.json` / SKILL.md header still `v3.0.1`. Bug-fix bundle awaits caller decision to promote to v3.0.2.
+- **No SKILL.md edits** — all six bugs are installer / hook-script / docs layer; spec prose untouched.
+
+---
+
+## v3.0.1 — user-simulation dogfood follow-up
+
+
 
 User-simulation dogfood (2026-05-19，临时沙箱模拟 4 类真实安装路径) 发现两处缺陷，已修。Total 测试断言 214 → **218 assertions** / 10 tests / 0 fail。Patch bump 因 (a) 都是 bug 修复（installer untracked 泄漏 + README 一字不差跑不通），无新功能，(b) `install.sh` 行为面"reset --hard 后清 untracked"是兼容修复（先前的"泄漏"不是公开契约），(c) v3.0.0 `(current)` 标签移除。
 

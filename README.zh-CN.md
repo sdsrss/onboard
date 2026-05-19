@@ -5,13 +5,13 @@
 [![Release](https://img.shields.io/github/v/release/sdsrss/onboard?label=release&color=blue)](https://github.com/sdsrss/onboard/releases)
 [![License](https://img.shields.io/github/license/sdsrss/onboard)](./LICENSE)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-7c3aed)](https://docs.claude.com/en/docs/claude-code/plugins)
-[![Tests](https://img.shields.io/badge/tests-214%20passing-brightgreen)](./tests)
+[![Tests](https://img.shields.io/badge/tests-224%20passing-brightgreen)](./tests)
 
 **📖 其他语言: [English](./README.md) · [简体中文](./README.zh-CN.md)**
 
 `/onboard` 是 [Claude Code](https://claude.com/claude-code) 的 Skill，把 *legacy* 项目走一遍 10 阶段标准化引导 —— 探测语言栈、生成 token 紧凑的 `CLAUDE.md`、配置 guard hooks、对齐 CI 与本地命令 —— **永远只 offer，永不自动安装系统工具**。默认 `--local-only` 模式零项目文件改动；团队成员 pull 后零感知。
 
-当前版本：**v3.0.1**。
+当前版本：**v3.0.2**。
 
 ---
 
@@ -64,14 +64,18 @@ curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bas
 
 ### 路径 C · 手动 `git clone`
 
-仓库里 skill 文件位于 `skills/onboard/` 子目录（Claude Code plugin 标准布局），直接 clone 到 `~/.claude/skills/onboard` 会让 `SKILL.md` 嵌在二层目录中。先 clone 到临时位置，再把 skill 子树拷过去：
+仓库里 skill 文件位于 `skills/onboard/` 子目录（Claude Code plugin 标准布局），直接 clone 到 `~/.claude/skills/onboard` 会让 `SKILL.md` 嵌在二层目录中。先 clone 到一次性临时目录，再把 skill 子树拷过去：
 
 ```bash
-git clone --depth 1 https://github.com/sdsrss/onboard.git /tmp/onboard-src
+SRC=$(mktemp -d -t onboard-src.XXXXXX)
+git clone --depth 1 https://github.com/sdsrss/onboard.git "$SRC"
 mkdir -p ~/.claude/skills
-cp -r /tmp/onboard-src/skills/onboard ~/.claude/skills/
+cp -r "$SRC/skills/onboard" ~/.claude/skills/
 chmod +x ~/.claude/skills/onboard/hooks/*.sh ~/.claude/skills/onboard/scripts/*.sh
+rm -rf "$SRC"
 ```
+
+> 用 `mktemp -d` 是为了避免敲错命令后重跑出现 `fatal: destination path … already exists`。
 
 ### 首次运行
 
@@ -165,7 +169,7 @@ Claude 会先打印**执行计划** —— 阶段清单、当前模式（默认 
 | WSL2 | 一等公民 | 等价于 Linux |
 | Windows 原生 | 不支持 | 用 WSL2 替代 |
 
-**工具**：`git` · `bash 3.2+`（必需）· `jq`（Phase 7 hook blocking）· `coreutils` on macOS（强烈推荐）· `make`（可选）。
+**工具**：`git` · `bash 3.2+` · `jq`（全部必需 —— 安装器在缺少 jq 时直接拒装，因为 guard hook 全部 shell out 到 jq；缺 jq 会让 `permissionDecision` deny 负载静默失效）· `coreutils` on macOS（强烈推荐）· `make`（可选）。
 
 **Git 托管平台 adapter**（Phase 8 PR/MR offer，永不自动执行）：GitHub（`gh`）· GitLab（`glab`）· Gitea/Forgejo/Codeberg（`tea`）；Bitbucket 和未识别 host fallback 到 web URL。
 
@@ -185,7 +189,7 @@ Claude 会先打印**执行计划** —— 阶段清单、当前模式（默认 
 
 ```bash
 bash tests/run.sh
-# 10 个测试 / 218 个断言 / 0 fail（v3.0.1）
+# 10 个测试 / 224 个断言 / 0 fail
 ```
 
 ---
@@ -228,7 +232,7 @@ bash tests/run.sh
 ## 相关链接
 
 - [完整协议规范（SKILL.md）](./skills/onboard/SKILL.md) · [Phase 7 hooks](./skills/onboard/phases/phase-7.md) · [Uninstall mode](./skills/onboard/phases/uninstall.md) · [State schema](./skills/onboard/references/state-schema.md)
-- [Changelog](./CHANGELOG.md)（完整版本历史；v3.0.1 = 当前）
+- [Changelog](./CHANGELOG.md)（完整版本历史；v3.0.2 = 当前）
 - [Releases](https://github.com/sdsrss/onboard/releases)
 - [Issues](https://github.com/sdsrss/onboard/issues)
 - [Claude Code 文档](https://docs.claude.com/en/docs/claude-code/overview)

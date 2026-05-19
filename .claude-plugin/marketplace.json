@@ -6,13 +6,13 @@
     "email": "2576vschsq@privaterelay.appleid.com"
   },
   "description": "Marketplace hosting the /onboard skill — legacy project onboarding protocol for Claude Code (compact CLAUDE.md, hook installation, forbidden zone management, CI alignment, install plan).",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "plugins": [
     {
       "name": "onboard",
       "source": "./",
       "description": "Legacy project onboarding protocol for Claude Code. Analyzes the project, generates a compact CLAUDE.md, configures hooks, manages forbidden zones, aligns CI, and batches install plan. Default mode --local-only writes zero PROJECT files (no team pollution).",
-      "version": "3.0.1",
+      "version": "3.0.2",
       "author": {
         "name": "sds"
       },

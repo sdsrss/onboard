@@ -145,8 +145,27 @@ else
   DRIFT=1
 fi
 
+# Verify README badges. The shields.io badge URL hardcodes the count and was
+# missed by prior preflight runs — added after v3.0.1 dogfood found stale 214.
+for readme in "$ROOT/README.md" "$ROOT/README.zh-CN.md"; do
+  [ -f "$readme" ] || continue
+  name="$(basename "$readme")"
+  badge_n="$(grep -oE 'tests-[0-9]+%20passing' "$readme" | head -1 | grep -oE '[0-9]+' | head -1)"
+  if [ -z "$badge_n" ]; then
+    fail "$name missing tests-N%20passing badge"
+    DRIFT=1
+    continue
+  fi
+  if [ "$badge_n" = "$TOTAL_ACTUAL" ]; then
+    pass "$name tests badge: $badge_n matches actual"
+  else
+    fail "$name tests badge drift: claims $badge_n, actual $TOTAL_ACTUAL"
+    DRIFT=1
+  fi
+done
+
 if [ "$DRIFT" -ne 0 ]; then
-  fail "drift detected — fix counts in CLAUDE.md and/or CHANGELOG.md before committing"
+  fail "drift detected — fix counts in CLAUDE.md / CHANGELOG.md / README badges before committing"
   exit 1
 fi
 

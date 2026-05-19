@@ -50,6 +50,17 @@ if [ -z "$STACKS_FILE" ] || [ ! -f "$STACKS_FILE" ]; then
   exit 0
 fi
 
+# Malformed stacks.json → block with actionable reason instead of leaking
+# raw `jq: parse error` to stderr (no `decision: block` payload = Claude Code
+# may infinite-retry Stop on its end). Emit clean JSON, exit 0 per Iron Law 15.
+if ! jq empty "$STACKS_FILE" 2>/dev/null; then
+  jq -n --arg path "$STACKS_FILE" '{
+    decision: "block",
+    reason: ("stop-verify: \($path) is not valid JSON. Fix the file or re-run /onboard --doctor; Stop check is being skipped until then.")
+  }'
+  exit 0
+fi
+
 # Collect touched files (deduped) into a NUL-safe array — read NL-delimited so
 # filenames containing whitespace survive intact. Earlier versions space-joined
 # the list and word-split it back, which corrupted `src/has space.ts` into two

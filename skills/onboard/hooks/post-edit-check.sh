@@ -44,9 +44,17 @@ LOG_DIR="${ONBOARD_LOG_DIR:-.claude/onboarding-logs}"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/post-edit-check.log"
 
-# Multi-stack dispatch: find matching stack by extension
+# Multi-stack dispatch: find matching stack by extension.
+# Guard each jq call with `|| true` so a malformed stacks.json yields empty
+# results instead of pipefail-aborting the whole hook (PostToolUse can't block,
+# but aborting still leaks `jq: parse error` to user-visible stderr and skips
+# touched-log dedup later in this script if we add steps after this block).
 if [ -n "${ONBOARD_STACKS_FILE:-}" ] && [ -f "$ONBOARD_STACKS_FILE" ]; then
   EXT=".${FILE_PATH##*.}"
+  if ! jq empty "$ONBOARD_STACKS_FILE" 2>/dev/null; then
+    echo "post-edit-check: $ONBOARD_STACKS_FILE is not valid JSON — skipping format check (re-run /onboard --doctor)" >&2
+    exit 0
+  fi
   CMD=$(jq -r --arg ext "$EXT" '
     .[] | select(.extensions | index($ext)) | .format_check_cmd // empty
   ' "$ONBOARD_STACKS_FILE" 2>/dev/null | head -1)

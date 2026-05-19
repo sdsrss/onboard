@@ -5,13 +5,13 @@
 [![Release](https://img.shields.io/github/v/release/sdsrss/onboard?label=release&color=blue)](https://github.com/sdsrss/onboard/releases)
 [![License](https://img.shields.io/github/license/sdsrss/onboard)](./LICENSE)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-7c3aed)](https://docs.claude.com/en/docs/claude-code/plugins)
-[![Tests](https://img.shields.io/badge/tests-214%20passing-brightgreen)](./tests)
+[![Tests](https://img.shields.io/badge/tests-224%20passing-brightgreen)](./tests)
 
 **📖 Read this in other languages: [English](./README.md) · [简体中文](./README.zh-CN.md)**
 
 `/onboard` is a [Claude Code](https://claude.com/claude-code) Skill that walks a *legacy* project through a structured 10-phase onboarding protocol — discovering stacks, generating a token-compact `CLAUDE.md`, configuring guard hooks, aligning CI with local commands — **all offer-only, never auto-installing system tools**. Default `--local-only` mode writes zero project files; team members pulling the branch see nothing.
 
-Current version: **v3.0.1**.
+Current version: **v3.0.2**.
 
 ---
 
@@ -64,14 +64,18 @@ Environment overrides: `ONBOARD_TARGET=project|user` · `ONBOARD_REPO` · `ONBOA
 
 ### Option C · Manual `git clone`
 
-The skill files live at `skills/onboard/` inside the repo (Claude Code plugin convention), so a direct clone to `~/.claude/skills/onboard` would nest `SKILL.md` two levels deep. Clone to scratch, then copy the skill subtree:
+The skill files live at `skills/onboard/` inside the repo (Claude Code plugin convention), so a direct clone to `~/.claude/skills/onboard` would nest `SKILL.md` two levels deep. Clone to a fresh scratch dir, then copy the skill subtree:
 
 ```bash
-git clone --depth 1 https://github.com/sdsrss/onboard.git /tmp/onboard-src
+SRC=$(mktemp -d -t onboard-src.XXXXXX)
+git clone --depth 1 https://github.com/sdsrss/onboard.git "$SRC"
 mkdir -p ~/.claude/skills
-cp -r /tmp/onboard-src/skills/onboard ~/.claude/skills/
+cp -r "$SRC/skills/onboard" ~/.claude/skills/
 chmod +x ~/.claude/skills/onboard/hooks/*.sh ~/.claude/skills/onboard/scripts/*.sh
+rm -rf "$SRC"
 ```
+
+> Using `mktemp -d` avoids `fatal: destination path … already exists` if you re-run after a typo.
 
 ### First run
 
@@ -165,7 +169,7 @@ All four follow **Iron Law 15** (exit 0 + stdout JSON, never mixed) and **Iron L
 | WSL2 | First-class | Treated as Linux |
 | Windows native | Not supported | Use WSL2 |
 
-**Tools**: `git`, `bash 3.2+` (required) · `jq` (Phase 7 hooks blocking) · `coreutils` on macOS (strongly recommended) · `make` (optional).
+**Tools**: `git`, `bash 3.2+`, `jq` (all required — installer refuses without jq because guard hooks shell out to it; missing jq silently disables `permissionDecision` deny payloads) · `coreutils` on macOS (strongly recommended) · `make` (optional).
 
 **Git host adapters** (Phase 8 PR/MR offer, never auto-execute): GitHub (`gh`), GitLab (`glab`), Gitea/Forgejo/Codeberg (`tea`); Bitbucket and unknown hosts fall back to web URLs.
 
@@ -185,7 +189,7 @@ Run the in-repo test suite:
 
 ```bash
 bash tests/run.sh
-# 10 integration tests / 218 assertions / 0 fail (v3.0.1)
+# 10 integration tests / 224 assertions / 0 fail
 ```
 
 ---
@@ -228,7 +232,7 @@ No speculative features. See [`CLAUDE.md`](./CLAUDE.md) for full repo-maintainer
 ## Links
 
 - [Full protocol spec (SKILL.md)](./skills/onboard/SKILL.md) · [Phase 7 hooks](./skills/onboard/phases/phase-7.md) · [Uninstall mode](./skills/onboard/phases/uninstall.md) · [State schema](./skills/onboard/references/state-schema.md)
-- [Changelog](./CHANGELOG.md) (full history; v3.0.1 = current)
+- [Changelog](./CHANGELOG.md) (full history; v3.0.2 = current)
 - [Releases](https://github.com/sdsrss/onboard/releases)
 - [Issues](https://github.com/sdsrss/onboard/issues)
 - [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/overview)

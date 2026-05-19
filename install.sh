@@ -58,12 +58,33 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { err "missing required command: $1"; exit 1; }
 }
 
+# When invoked via `curl ... | bash -s -- <action>`, $0 expands to "bash" and
+# hints like "$0 update" become literally "bash update" — unrunnable. self_cmd
+# returns "$0" when running from a real file, else the canonical curl recipe so
+# the user can copy-paste the hint verbatim.
+self_cmd() {
+  if [ -f "$0" ]; then
+    printf '%s' "$0"
+  else
+    printf 'curl -sSL https://raw.githubusercontent.com/sdsrss/onboard/main/install.sh | bash -s --'
+  fi
+}
+
 check_deps() {
   require_cmd git
   require_cmd bash
   if ! command -v jq >/dev/null 2>&1; then
-    warn "jq not found on PATH — Phase 7 hooks need it at runtime."
-    warn "install with: brew install jq | apt install jq | dnf install jq | pacman -S jq"
+    err "jq not found on PATH — all 4 guard hooks shell out to jq for input parsing"
+    err "  and JSON deny-output. Without jq they exit 127 and PreToolUse silently"
+    err "  allows everything (no permissionDecision payload), defeating guard-bash"
+    err "  + guard-edit. Refusing install to fail-loud instead of installing-broken."
+    err ""
+    err "install with one of:"
+    err "  brew install jq        # macOS"
+    err "  apt install jq         # Debian / Ubuntu"
+    err "  dnf install jq         # Fedora / RHEL"
+    err "  pacman -S jq           # Arch"
+    exit 1
   fi
 }
 
@@ -102,8 +123,10 @@ do_install() {
     v=$(current_version)
     if [ "${ONBOARD_NO_OVERWRITE:-0}" = "1" ]; then
       warn "/onboard already installed (v$v) at $INSTALL_DIR — refusing to overwrite (ONBOARD_NO_OVERWRITE=1)"
-      warn "to refresh: $0 update"
-      warn "to reinstall clean: $0 uninstall && $0 install"
+      local self
+      self=$(self_cmd)
+      warn "to refresh: $self update"
+      warn "to reinstall clean: $self uninstall && $self install"
       exit 0
     fi
     info "/onboard v$v already at $INSTALL_DIR — overwriting (set ONBOARD_NO_OVERWRITE=1 to refuse)"
@@ -137,7 +160,7 @@ do_update() {
   check_deps
   if [ ! -d "$INSTALL_DIR" ]; then
     err "not installed at $INSTALL_DIR"
-    err "run first:  $0 install"
+    err "run first:  $(self_cmd) install"
     exit 1
   fi
 
@@ -224,6 +247,12 @@ do_uninstall() {
     read -r -p "Proceed with global uninstall? [y/N] " ans
   else
     ans="${ONBOARD_CONFIRM_UNINSTALL:-n}"
+    case "$ans" in
+      y|Y|yes|YES) ;;
+      *)
+        warn "non-interactive stdin (no TTY) — re-run with ONBOARD_CONFIRM_UNINSTALL=yes to proceed"
+        ;;
+    esac
   fi
 
   case "$ans" in
@@ -236,14 +265,22 @@ do_uninstall() {
           ""|/|/.|/..) err "refusing rm -rf on suspect path: '$victim'"; exit 2 ;;
         esac
       done
-      rm -rf "$INSTALL_DIR"
-      rm -rf "$STAGE_DIR"
+      local removed_skill=0
+      if [ -d "$INSTALL_DIR" ]; then
+        rm -rf "$INSTALL_DIR"
+        removed_skill=1
+      fi
+      [ -d "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"
       if [ -d "$mirror_dir" ]; then
         rm -rf "$mirror_dir"
         rmdir "$HOME/.claude/onboard-runtime" 2>/dev/null || true
         ok "mirror directory removed: $mirror_dir"
       fi
-      ok "/onboard global skill files removed"
+      if [ "$removed_skill" -eq 1 ]; then
+        ok "/onboard global skill files removed"
+      else
+        ok "/onboard cleanup complete (no skill install dir was present)"
+      fi
       echo ""
       echo "If you forgot per-project cleanup, manually clean each project:"
       echo ""
@@ -275,19 +312,23 @@ do_doctor() {
     v=$(current_version)
     echo "  ✓ installed   v$v"
     echo "                $INSTALL_DIR"
-    local exec_count
-    exec_count=$(find "$INSTALL_DIR"/hooks -name "*.sh" -perm -u+x 2>/dev/null | wc -l | tr -d ' ')
+    local exec_count=0
+    if [ -d "$INSTALL_DIR/hooks" ]; then
+      exec_count=$(find "$INSTALL_DIR"/hooks -name "*.sh" -perm -u+x 2>/dev/null | wc -l | tr -d ' ')
+    fi
     echo "  hooks exec    $exec_count/4"
-    local script_count
-    script_count=$(find "$INSTALL_DIR"/scripts -name "*.sh" -perm -u+x 2>/dev/null | wc -l | tr -d ' ')
+    local script_count=0
+    if [ -d "$INSTALL_DIR/scripts" ]; then
+      script_count=$(find "$INSTALL_DIR"/scripts -name "*.sh" -perm -u+x 2>/dev/null | wc -l | tr -d ' ')
+    fi
     if [ "$script_count" -ge 1 ]; then
       echo "  scripts exec  $script_count/1 (mirror-hooks.sh, v2.10.1+)"
     else
-      echo "  scripts exec  0/1 — mirror-hooks.sh missing or not +x (re-run $0 update)"
+      echo "  scripts exec  0/1 — mirror-hooks.sh missing or not +x (re-run $(self_cmd) update)"
     fi
   else
     echo "  ✗ not installed at $INSTALL_DIR"
-    echo "    install with: $0 install"
+    echo "    install with: $(self_cmd) install"
   fi
 
   echo "  stage cache   $([ -d "$STAGE_DIR" ] && echo "✓ $STAGE_DIR" || echo "✗ missing (will be re-cloned on update)")"
@@ -327,6 +368,7 @@ Actions:
   update      Pull latest changes from origin (refuses on dirty stage tree)
   uninstall   Remove the global skill install + source cache (asks for confirmation)
   doctor      Diagnose installer state + dependency availability
+  help        Show this message
 
 Environment overrides:
   ONBOARD_REPO              git URL of the skill repository
